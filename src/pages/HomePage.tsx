@@ -8,7 +8,8 @@ import { VerifierModal } from '@/components/game/VerifierModal';
 import { calculateMultiplier } from '@shared/game-logic';
 import { formatMultiplier } from '@/lib/game-utils';
 import { Toaster, toast } from 'sonner';
-import { Sparkles, Terminal, Activity, ShieldCheck } from 'lucide-react';
+import { Sparkles, Terminal, Activity, ShieldCheck, Hash } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { GameState, ApiResponse, Bet, RoundRecord } from '@shared/types';
 const USER_ID = 'demo-user-' + Math.random().toString(36).slice(2, 7);
 export function HomePage() {
@@ -17,7 +18,6 @@ export function HomePage() {
   const [interpolatedMs, setInterpolatedMs] = useState(0);
   const [isWaitingForBet, setIsWaitingForBet] = useState(false);
   const [myBet, setMyBet] = useState<Bet | null>(null);
-  // Verifier Modal
   const [verifierOpen, setVerifierOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<RoundRecord | null>(null);
   const serverOffsetRef = useRef<number>(0);
@@ -59,7 +59,9 @@ export function HomePage() {
     const loop = () => {
       if (gameState) {
         const now = Date.now() + serverOffsetRef.current;
-        const elapsed = Math.max(0, now - gameState.startTime);
+        const elapsed = gameState.phase === 'FLYING' 
+          ? Math.max(0, now - gameState.startTime)
+          : (gameState.phase === 'CRASHED' ? (gameState.serverTime - gameState.startTime) : 0);
         setInterpolatedMs(elapsed);
       }
       frame = requestAnimationFrame(loop);
@@ -79,7 +81,7 @@ export function HomePage() {
       if (json.success && json.data) {
         setMyBet(json.data);
         setBalance(prev => prev - amount);
-        toast.success('Bet Committed to Ledger');
+        toast.success('BET SECURED', { style: { backgroundColor: '#f59e0b', color: '#000' } });
       } else {
         toast.error(json.error || 'Failed to place bet');
       }
@@ -99,152 +101,155 @@ export function HomePage() {
       });
       const json = await res.json() as ApiResponse<Bet>;
       if (json.success && json.data) {
-        const win = json.data.winningAmount || 0;
         toast.success('TRANSACTION SUCCESSFUL', {
-          description: `Secured ${json.data.multiplier}x multiplier. Payout: $${win.toFixed(2)}`,
+          description: `Secured ${json.data.multiplier}x payout.`,
           style: { backgroundColor: '#10b981', color: '#fff' }
         });
         setMyBet(null);
         fetchBalance();
       } else {
-        toast.error(json.error || 'Cashout refused by engine');
+        toast.error(json.error || 'Cashout refused');
       }
     } catch (e) {
       toast.error('Network Error');
     }
   }, [myBet, gameState, fetchBalance]);
   useEffect(() => {
-    if (gameState?.phase === 'PREPARING') {
-      setMyBet(null);
-    }
+    if (gameState?.phase === 'PREPARING') setMyBet(null);
   }, [gameState?.phase]);
   const currentMultiplier = calculateMultiplier(interpolatedMs);
+  const isCrashed = gameState?.phase === 'CRASHED';
   return (
-    <div className="flex flex-col h-screen bg-[#020202] text-zinc-100 font-sans overflow-hidden">
-      <ThemeToggle />
-      <Toaster position="top-center" richColors />
-      <VerifierModal 
-        round={selectedRound} 
-        isOpen={verifierOpen} 
-        onOpenChange={setVerifierOpen} 
+    <div className="min-h-screen bg-[#020202] text-zinc-100 font-sans selection:bg-amber-500/30">
+      <Toaster position="top-right" richColors theme="dark" />
+      <ThemeToggle className="top-4 right-4" />
+      <VerifierModal
+        round={selectedRound}
+        isOpen={verifierOpen}
+        onOpenChange={setVerifierOpen}
       />
-      <header className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-[#09090b]/80 backdrop-blur-md z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-amber-500 rounded flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.5)]">
-            <Sparkles className="w-5 h-5 text-black" />
-          </div>
-          <div>
-            <h1 className="text-sm font-black uppercase tracking-widest font-mono">
-              Retro <span className="text-amber-500">Aviator</span>
-            </h1>
-          </div>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">Balance</span>
-            <span className="text-sm font-bold font-mono text-emerald-400">${balance.toFixed(2)}</span>
-          </div>
-          <div className="w-px h-8 bg-zinc-800" />
-          <button 
-            onClick={() => setVerifierOpen(true)}
-            className="flex items-center gap-2 text-[10px] font-mono text-amber-500/80 hover:text-amber-500 transition-colors bg-amber-500/10 px-3 py-1.5 rounded border border-amber-500/20"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Verify Fairness</span>
-          </button>
-        </div>
-      </header>
-      <main className="flex-1 flex overflow-hidden max-w-7xl mx-auto w-full px-0 sm:px-4 lg:px-6 py-0 md:py-4 lg:py-6">
-        <aside className="hidden xl:block w-72 h-full overflow-hidden rounded-l-xl border-l border-t border-b border-zinc-800">
-          <LiveBetsTable activeBets={gameState?.activeBets || []} />
-        </aside>
-        <section className="flex-1 flex flex-col min-w-0 bg-zinc-900/20 border border-zinc-800 xl:rounded-r-xl">
-          <HistoryRail 
-            history={gameState?.history || []} 
-            onSelectRound={(r) => {
-              setSelectedRound(r);
-              setVerifierOpen(true);
-            }}
-          />
-          <div className="flex-1 relative p-4 lg:p-6 overflow-hidden flex flex-col">
-            <div className="flex-1 relative">
-              <RadarCanvas
-                elapsedMs={interpolatedMs}
-                isCrashed={gameState?.phase === 'CRASHED'}
-                isFlying={gameState?.phase === 'FLYING'}
-              />
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                {gameState?.phase === 'FLYING' && (
-                  <div className="animate-in zoom-in duration-300">
-                    <div className="text-7xl md:text-8xl lg:text-9xl font-black font-mono text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] tracking-tighter">
-                      {formatMultiplier(currentMultiplier)}
-                    </div>
-                  </div>
-                )}
-                {gameState?.phase === 'PREPARING' && (
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 border-4 border-amber-500/10 border-t-amber-500 rounded-full animate-spin" />
-                    <div className="text-xl font-mono font-bold text-amber-500 tracking-[0.3em] uppercase animate-pulse">
-                      Establishing Link
-                    </div>
-                  </div>
-                )}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="py-8 md:py-10 lg:py-12">
+          {/* Header */}
+          <header className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-900/40 p-4 rounded-xl border border-zinc-800 backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center shadow-primary transform rotate-3">
+                <Sparkles className="w-6 h-6 text-black" />
               </div>
-              <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end pointer-events-none">
-                <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-600 bg-black/60 px-2 py-1.5 rounded border border-zinc-800/50">
-                  <Activity className="w-3 h-3 text-amber-500" />
-                  <span>NODE: DO_GLOBAL_01 // TPS: 60.00</span>
+              <div>
+                <h1 className="text-xl font-black uppercase tracking-tighter font-mono">
+                  RETRO <span className="text-amber-500">AVIATOR</span>
+                </h1>
+                <p className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Proprietary Flight Logic v4.2</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-r border-zinc-800">
+                <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">Available Credits</span>
+                <span className="text-lg font-bold font-mono text-emerald-400">${balance.toFixed(2)}</span>
+              </div>
+              <button
+                onClick={() => setVerifierOpen(true)}
+                className="flex items-center gap-2 text-[10px] font-mono text-amber-500 uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-lg border border-amber-500/20 transition-all active:scale-95"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span className="hidden md:inline">Verify Fair</span>
+              </button>
+            </div>
+          </header>
+          {/* Main Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Sidebar - Desktop */}
+            <aside className="hidden lg:block lg:col-span-3 h-[600px] rounded-xl overflow-hidden border border-zinc-800">
+              <LiveBetsTable activeBets={gameState?.activeBets || []} />
+            </aside>
+            {/* Game Arena */}
+            <section className="lg:col-span-9 flex flex-col gap-6">
+              <div className="bg-zinc-900/20 rounded-xl border border-zinc-800 overflow-hidden flex flex-col min-h-[500px]">
+                <HistoryRail
+                  history={gameState?.history || []}
+                  onSelectRound={(r) => {
+                    setSelectedRound(r);
+                    setVerifierOpen(true);
+                  }}
+                />
+                <div className="flex-1 relative p-4 flex flex-col">
+                  <div className="flex-1 relative min-h-[350px]">
+                    <RadarCanvas
+                      elapsedMs={interpolatedMs}
+                      isCrashed={isCrashed}
+                      isFlying={gameState?.phase === 'FLYING'}
+                    />
+                    {/* Multiplier Overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+                      {gameState?.phase === 'FLYING' && (
+                        <div className="animate-in zoom-in duration-300">
+                          <div className="text-7xl md:text-9xl font-black font-mono text-white drop-shadow-[0_0_30px_rgba(255,255,255,0.3)] tracking-tighter">
+                            {formatMultiplier(currentMultiplier)}
+                          </div>
+                        </div>
+                      )}
+                      {isCrashed && (
+                        <div className="glitch-active">
+                          <div className="text-7xl md:text-9xl font-black font-mono text-red-500 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)] tracking-tighter">
+                            {formatMultiplier(gameState.lastCrashPoint)}
+                          </div>
+                        </div>
+                      )}
+                      {gameState?.phase === 'PREPARING' && (
+                        <div className="flex flex-col items-center gap-6">
+                          <div className="w-20 h-20 border-4 border-amber-500/10 border-t-amber-500 rounded-full animate-spin" />
+                          <div className="text-lg font-mono font-bold text-amber-500 tracking-[0.5em] uppercase animate-pulse">
+                            Link Initializing
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Stats HUD */}
+                    <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end pointer-events-none z-40">
+                      <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500 bg-black/80 px-3 py-2 rounded-lg border border-zinc-800">
+                        <Activity className="w-3 h-3 text-emerald-500" />
+                        <span className="opacity-70">TELEMETRY: ACTIVE // LATENCY: 24MS</span>
+                      </div>
+                      {gameState?.nextSeedHash && (
+                        <div className="hidden md:flex items-center gap-3 text-[9px] font-mono text-zinc-600 bg-black/40 px-3 py-2 rounded-lg border border-zinc-800/50">
+                          <Hash className="w-3 h-3 text-amber-500/50" />
+                          <span className="truncate max-w-[200px]">HASH: {gameState.nextSeedHash}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Controls */}
+                  <div className="mt-4">
+                    <CockpitControls
+                      balance={balance}
+                      gameState={gameState?.phase || 'PREPARING'}
+                      onPlaceBet={handlePlaceBet}
+                      onCashout={handleCashout}
+                      currentMultiplier={currentMultiplier}
+                      hasActiveBet={!!myBet}
+                      isWaiting={isWaitingForBet}
+                    />
+                  </div>
                 </div>
-                {gameState?.nextSeedHash && (
-                  <div className="flex items-center gap-2 text-[9px] font-mono text-zinc-700 max-w-[120px] md:max-w-none">
-                    <Hash className="w-3 h-3" />
-                    <span className="truncate">NEXT_HASH: {gameState.nextSeedHash}</span>
-                  </div>
-                )}
               </div>
-            </div>
-            <div className="mt-4 lg:mt-6">
-              <CockpitControls
-                balance={balance}
-                gameState={gameState?.phase || 'PREPARING'}
-                onPlaceBet={handlePlaceBet}
-                onCashout={handleCashout}
-                currentMultiplier={currentMultiplier}
-                hasActiveBet={!!myBet}
-                isWaiting={isWaitingForBet}
-              />
-            </div>
+            </section>
           </div>
-        </section>
-      </main>
-      <footer className="h-8 border-t border-zinc-900 bg-black flex items-center justify-between px-6 text-[9px] font-mono text-zinc-700 uppercase tracking-widest">
-        <span>Cloudflare DO Authoritative Logic v4.2.0</span>
-        <div className="flex gap-4">
-          <span className="flex items-center gap-1"><Terminal className="w-2 h-2" /> Sync Mode: Authoritative</span>
-          <span>FPS: 60.0</span>
+          {/* Footer Metadata */}
+          <footer className="mt-8 pt-8 border-t border-zinc-900 flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-2"><Terminal className="w-3 h-3" /> System: Authoritative Global DO</span>
+              <span>•</span>
+              <span>Protocol: SHA-256 Verified</span>
+            </div>
+            <div className="flex gap-6">
+              <span className="hover:text-amber-500 transition-colors cursor-help">TOS</span>
+              <span className="hover:text-amber-500 transition-colors cursor-help">Fairness Policy</span>
+              <span className="text-zinc-800">BUILD_ID: RADAR_04.2.0</span>
+            </div>
+          </footer>
         </div>
-      </footer>
+      </div>
     </div>
-  );
-}
-function Hash(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="4" x2="20" y1="9" y2="9" />
-      <line x1="4" x2="20" y1="15" y2="15" />
-      <line x1="10" x2="8" y1="3" y2="21" />
-      <line x1="16" x2="14" y1="3" y2="21" />
-    </svg>
   );
 }
