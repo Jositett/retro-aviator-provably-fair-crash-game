@@ -1,16 +1,16 @@
+import CryptoJS from 'crypto-js';
 /**
  * Authoritative game physics and constants shared between client and server.
  */
 export const GAME_CONSTANTS = {
   PREPARATION_MS: 5000,
   COOLDOWN_MS: 3000,
-  TICK_RATE_MS: 100, // Backend logic tick
+  TICK_RATE_MS: 100, 
   MAX_MULTIPLIER: 1000000,
   GROWTH_EXPONENT: 0.0005,
 };
 /**
- * f(t) = 1.0 + 0.01 * (e^(0.0005 * t) - 1)
- * @param elapsedMs Time since flight started
+ * f(t) = 1.0 + 0.01 * (e^(k*t) - 1)
  */
 export function calculateMultiplier(elapsedMs: number): number {
   if (elapsedMs <= 0) return 1.0;
@@ -18,20 +18,26 @@ export function calculateMultiplier(elapsedMs: number): number {
   return Math.floor(multiplier * 100) / 100;
 }
 /**
- * Inverse of calculateMultiplier: gets time required to reach a multiplier.
- * Used for server-side crash point calculation.
+ * Deterministically derives a crash point from a server seed using SHA-256.
+ * logic: hex -> decimal -> multiplier
  */
-export function getTimeForMultiplier(multiplier: number): number {
-  if (multiplier <= 1.0) return 0;
-  // m = 1 + 0.01 * (e^(k*t) - 1)
-  // (m - 1) / 0.01 + 1 = e^(k*t)
-  // ln((m - 1) * 100 + 1) / k = t
-  return Math.log((multiplier - 1) * 100 + 1) / GAME_CONSTANTS.GROWTH_EXPONENT;
+export function generateProvableCrashPoint(seed: string): number {
+  const hash = CryptoJS.SHA256(seed).toString();
+  // Take first 52 bits (13 hex chars)
+  const hex = hash.substring(0, 13);
+  const r = parseInt(hex, 16);
+  const e = Math.pow(2, 52);
+  // House edge 3% (approx 1 in 33 rounds crash at 1.00x)
+  if (r % 33 === 0) return 1.00;
+  const multiplier = Math.floor((100 * e - r) / (e - r)) / 100;
+  return Math.max(1.00, multiplier);
 }
-export function generateCrashPoint(): number {
-  const e = 2 ** 32;
-  const h = Math.floor(Math.random() * e);
-  if (h % 33 === 0) return 1.0;
-  const val = Math.floor((100 * e - h) / (e - h)) / 100;
-  return Math.max(1.0, val);
+export function verifyRound(seed: string, expectedHash: string): boolean {
+  return CryptoJS.SHA256(seed).toString() === expectedHash;
+}
+export function generateSeed(): string {
+  return CryptoJS.lib.WordArray.random(32).toString();
+}
+export function hashSeed(seed: string): string {
+  return CryptoJS.SHA256(seed).toString();
 }

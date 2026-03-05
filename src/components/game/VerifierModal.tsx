@@ -18,100 +18,82 @@ export function VerifierModal({ round, isOpen, onOpenChange }: VerifierModalProp
   const [result, setResult] = useState<{ crashPoint: number; isValid: boolean } | null>(null);
   useEffect(() => {
     if (round) {
-      setSeed(round.serverSeed || '');
-      setHash(round.seedHash || '');
-    } else {
-      setSeed('');
-      setHash('');
-      setResult(null);
+      setSeed(round.serverSeed);
+      setHash(round.seedHash);
     }
-  }, [round, isOpen]);
-  const handleVerify = async () => {
+  }, [round]);
+  const handleVerify = () => {
     if (!seed || !hash) return;
-    try {
-      const calculatedPoint = await generateProvableCrashPoint(seed);
-      const isValid = await verifyRound(seed, hash);
-      setResult({ crashPoint: calculatedPoint, isValid });
-    } catch (e) {
-      console.error("Verification failed", e);
-    }
+    const calculatedPoint = generateProvableCrashPoint(seed);
+    const isValid = verifyRound(seed, hash);
+    setResult({ crashPoint: calculatedPoint, isValid });
   };
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-zinc-950 border-zinc-800 text-zinc-100 p-0 overflow-hidden shadow-2xl">
-        <div className="p-6 space-y-6">
-          <DialogHeader className="space-y-3">
-            <DialogTitle className="flex items-center gap-2 text-amber-500 font-mono uppercase tracking-widest text-lg">
-              <ShieldCheck className="w-6 h-6" /> Provably Fair Verifier
-            </DialogTitle>
-            <DialogDescription className="text-zinc-500 font-mono text-xs leading-relaxed">
-              Verify the mathematical integrity of round outcomes using SHA-256. 
-              The server seed reveals the pre-calculated crash point.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-mono text-zinc-500 tracking-widest">Server Seed (Revealed)</Label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
-                <Input
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                  placeholder="Revealed seed for completed round"
-                  className="bg-black/50 border-zinc-800 font-mono text-xs pl-10 focus:ring-amber-500/40 h-11"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-mono text-zinc-500 tracking-widest">Round Hash (Encrypted)</Label>
-              <Input
-                value={hash}
-                onChange={(e) => setHash(e.target.value)}
-                placeholder="SHA-256 hash shown before round"
-                className="bg-black/50 border-zinc-800 font-mono text-xs focus:ring-amber-500/40 h-11"
+      <DialogContent className="sm:max-w-[500px] bg-zinc-950 border-zinc-800 text-zinc-100">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-amber-500 font-mono uppercase tracking-widest">
+            <ShieldCheck className="w-5 h-5" /> Provably Fair Verifier
+          </DialogTitle>
+          <DialogDescription className="text-zinc-500 font-mono text-xs">
+            Verify the mathematical integrity of round outcomes using SHA-256.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-6 py-4">
+          <div className="space-y-2">
+            <Label className="text-[10px] uppercase font-mono text-zinc-500">Server Seed (Revealed)</Label>
+            <div className="relative">
+              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
+              <Input 
+                value={seed}
+                onChange={(e) => setSeed(e.target.value)}
+                placeholder="Enter Server Seed"
+                className="bg-black/50 border-zinc-800 font-mono text-xs pl-10"
               />
             </div>
-            <Button
-              onClick={handleVerify}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold uppercase tracking-widest h-12 transition-all active:scale-[0.98]"
-            >
-              Verify Integrity
-            </Button>
           </div>
+          <div className="space-y-2">
+            <Label className="text-[10px] uppercase font-mono text-zinc-500">Round Hash (Salt)</Label>
+            <Input 
+              value={hash}
+              onChange={(e) => setHash(e.target.value)}
+              placeholder="Enter Round Hash"
+              className="bg-black/50 border-zinc-800 font-mono text-xs"
+            />
+          </div>
+          <Button 
+            onClick={handleVerify}
+            className="w-full bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold uppercase tracking-widest h-12"
+          >
+            Verify Outcome
+          </Button>
           {result && (
             <div className={cn(
-              "p-5 rounded-lg border font-mono animate-in slide-in-from-bottom-2 duration-300",
+              "p-4 rounded border font-mono animate-in zoom-in duration-300",
               result.isValid ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"
             )}>
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs uppercase text-zinc-500 flex items-center gap-2">
-                  <Terminal className="w-3 h-3" /> System Log
+                  <Terminal className="w-3 h-3" /> Verification Log
                 </span>
                 {result.isValid ? (
-                  <span className="text-xs text-emerald-500 font-bold flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 rounded">
+                  <span className="text-xs text-emerald-500 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" /> VERIFIED
                   </span>
                 ) : (
-                  <span className="text-xs text-red-500 font-bold flex items-center gap-1.5 px-2 py-0.5 bg-red-500/10 rounded">
-                    <XCircle className="w-3 h-3" /> INVALID
+                  <span className="text-xs text-red-500 flex items-center gap-1">
+                    <XCircle className="w-3 h-3" /> INVALID SEED
                   </span>
                 )}
               </div>
-              <div className="space-y-2">
-                <p className="text-[11px] text-zinc-500 uppercase tracking-tighter">Derived Multiplier Outcome:</p>
-                <div className="flex items-baseline gap-2">
-                  <p className={cn(
-                    "text-4xl font-black italic tracking-tighter",
-                    result.isValid ? "text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" : "text-red-500"
-                  )}>
-                    {result.crashPoint.toFixed(2)}x
-                  </p>
-                </div>
-                <div className="pt-2 border-t border-zinc-800/50 mt-2">
-                  <p className="text-[9px] text-zinc-600 break-all leading-tight font-mono">
-                    VERIFICATION_ID: {crypto.randomUUID().toUpperCase()}
-                  </p>
-                </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-zinc-400 italic">Resulting Crash Point:</p>
+                <p className={cn(
+                  "text-3xl font-black italic",
+                  result.isValid ? "text-white" : "text-red-500"
+                )}>
+                  {result.crashPoint.toFixed(2)}x
+                </p>
               </div>
             </div>
           )}

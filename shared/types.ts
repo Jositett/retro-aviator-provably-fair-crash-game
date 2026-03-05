@@ -1,4 +1,11 @@
 export type GamePhase = 'PREPARING' | 'FLYING' | 'CRASHED';
+export interface RoundRecord {
+  id: string;
+  crashPoint: number;
+  serverSeed: string; // Revealed after round
+  seedHash: string;   // Shown during/before round
+  timestamp: number;
+}
 export interface Bet {
   userId: string;
   userName: string;
@@ -7,15 +14,18 @@ export interface Bet {
   autoCashout: number | null;
   payout: number | null;
   timestamp: number;
+  cashedOut: boolean;
+  winningAmount: number;
 }
 export interface GameState {
   phase: GamePhase;
-  startTime: number; // Server timestamp when current phase started
-  serverTime: number; // Current server timestamp
+  startTime: number; 
+  serverTime: number; 
   lastCrashPoint: number;
-  history: number[];
+  history: RoundRecord[];
   activeBets: Bet[];
   currentMultiplier: number;
+  nextSeedHash: string;
 }
 export interface UserBalance {
   balance: number;

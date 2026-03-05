@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, GamePhase, Bet, UserBalance } from '@shared/types';
-import { GAME_CONSTANTS, calculateMultiplier, generateCrashPoint, getTimeForMultiplier } from '@shared/game-logic';
+import type { GameState, Bet, RoundRecord } from '@shared/types';
+import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '@shared/game-logic';
 export class GlobalDurableObject extends DurableObject {
   private state: GameState = {
     phase: 'PREPARING',
@@ -10,19 +10,31 @@ export class GlobalDurableObject extends DurableObject {
     history: [],
     activeBets: [],
     currentMultiplier: 1.0,
+    nextSeedHash: '',
   };
-  private crashPoint: number = 2.0;
+  private currentServerSeed: string = '';
+  private nextServerSeed: string = '';
   private initialized = false;
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
       const saved = await this.ctx.storage.get<GameState>("game_state");
+      const seeds = await this.ctx.storage.get<{current: string, next: string}>("seeds");
       if (saved) {
         this.state = saved;
-        // Reset to preparing on restart for safety
         this.state.phase = 'PREPARING';
         this.state.startTime = Date.now();
+        this.state.activeBets = [];
       }
+      if (seeds) {
+        this.currentServerSeed = seeds.current;
+        this.nextServerSeed = seeds.next;
+      } else {
+        this.currentServerSeed = generateSeed();
+        this.nextServerSeed = generateSeed();
+        await this.ctx.storage.put("seeds", { current: this.currentServerSeed, next: this.nextServerSeed });
+      }
+      this.state.nextSeedHash = hashSeed(this.nextServerSeed);
       this.initialized = true;
       this.runLoop();
     });
@@ -36,24 +48,35 @@ export class GlobalDurableObject extends DurableObject {
         if (elapsed >= GAME_CONSTANTS.PREPARATION_MS) {
           this.state.phase = 'FLYING';
           this.state.startTime = now;
-          this.crashPoint = generateCrashPoint();
           this.state.currentMultiplier = 1.0;
         }
       } else if (this.state.phase === 'FLYING') {
+        const crashPoint = generateProvableCrashPoint(this.currentServerSeed);
         this.state.currentMultiplier = calculateMultiplier(elapsed);
-        // Check for Auto-Cashouts
+        // Auto-Cashouts
         for (const bet of this.state.activeBets) {
-          if (!bet.payout && bet.autoCashout && this.state.currentMultiplier >= bet.autoCashout) {
+          if (!bet.cashedOut && bet.autoCashout && this.state.currentMultiplier >= bet.autoCashout) {
             await this.processCashout(bet.userId, bet.autoCashout);
           }
         }
-        if (this.state.currentMultiplier >= this.crashPoint) {
+        if (this.state.currentMultiplier >= crashPoint) {
           this.state.phase = 'CRASHED';
           this.state.startTime = now;
-          this.state.lastCrashPoint = this.crashPoint;
-          this.state.history = [this.crashPoint, ...this.state.history].slice(0, 50);
-          this.state.activeBets = []; // Reset active bets (lost)
+          this.state.lastCrashPoint = crashPoint;
+          const record: RoundRecord = {
+            id: crypto.randomUUID(),
+            crashPoint: crashPoint,
+            serverSeed: this.currentServerSeed,
+            seedHash: hashSeed(this.currentServerSeed),
+            timestamp: now
+          };
+          this.state.history = [record, ...this.state.history].slice(0, 30);
+          // Rotate Seeds
+          this.currentServerSeed = this.nextServerSeed;
+          this.nextServerSeed = generateSeed();
+          this.state.nextSeedHash = hashSeed(this.nextServerSeed);
           await this.ctx.storage.put("game_state", this.state);
+          await this.ctx.storage.put("seeds", { current: this.currentServerSeed, next: this.nextServerSeed });
         }
       } else if (this.state.phase === 'CRASHED') {
         if (elapsed >= GAME_CONSTANTS.COOLDOWN_MS) {
@@ -67,8 +90,7 @@ export class GlobalDurableObject extends DurableObject {
     }
   }
   async getGameState(): Promise<GameState> {
-    this.state.serverTime = Date.now();
-    return this.state;
+    return { ...this.state, serverTime: Date.now() };
   }
   async getBalance(userId: string): Promise<number> {
     return (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
@@ -86,30 +108,28 @@ export class GlobalDurableObject extends DurableObject {
       autoCashout,
       multiplier: null,
       payout: null,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      cashedOut: false,
+      winningAmount: 0
     };
     this.state.activeBets.push(bet);
     return bet;
   }
   async processCashout(userId: string, targetMultiplier?: number): Promise<Bet> {
     if (this.state.phase !== 'FLYING') throw new Error("Game not in flight");
-    const betIndex = this.state.activeBets.findIndex(b => b.userId === userId && !b.payout);
-    if (betIndex === -1) throw new Error("No active bet found");
-    const bet = this.state.activeBets[betIndex];
+    const bet = this.state.activeBets.find(b => b.userId === userId && !b.cashedOut);
+    if (!bet) throw new Error("No active bet found");
     const multiplier = targetMultiplier ?? this.state.currentMultiplier;
-    // Safety check: Cannot cashout above current server multiplier (unless auto-cashout triggered)
-    if (!targetMultiplier && multiplier > this.state.currentMultiplier) {
-        throw new Error("Invalid cashout multiplier");
-    }
     const payout = bet.amount * multiplier;
     bet.multiplier = multiplier;
     bet.payout = payout;
+    bet.cashedOut = true;
+    bet.winningAmount = payout;
     let balance = await this.getBalance(userId);
     balance += payout;
     await this.ctx.storage.put(`balance_${userId}`, balance);
     return bet;
   }
-  // Fallback for demo items from template
   async getDemoItems() { return []; }
   async increment() { return 0; }
 }
