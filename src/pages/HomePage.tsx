@@ -36,32 +36,56 @@ export function HomePage() {
     try {
       const start = Date.now();
       const res = await fetch('/api/game/state');
-      if (!res.ok) throw new Error("Sync failed");
-      const json = await res.json() as ApiResponse<GameState>;
+      let json: ApiResponse<GameState>;
+      
+      try {
+        json = await res.json() as ApiResponse<GameState>;
+      } catch (parseErr) {
+        setIsConnected(false);
+        console.warn(`fetchState failed: JSON parse error - ${parseErr}`);
+        return;
+      }
+      
       const end = Date.now();
       const latency = (end - start) / 2;
-      if (json.success && json.data) {
-        setGameState(json.data);
-        setIsConnected(true);
-        const newOffset = json.data.serverTime - (end - latency);
-        offsetBufferRef.current.push(newOffset);
-        if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
-        serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
+      
+      if (!res.ok || !json.success || !json.data) {
+        setIsConnected(false);
+        console.warn(`fetchState failed: HTTP ${res.status} ${json.error || 'no data'}`);
+        return;
       }
-    } catch (e) {
+      
+      setGameState(json.data);
+      setIsConnected(true);
+      const newOffset = json.data.serverTime - (end - latency);
+      offsetBufferRef.current.push(newOffset);
+      if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
+      serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
+    } catch (netErr) {
       setIsConnected(false);
-      console.warn("Sync error:", e);
+      console.warn(`fetchState failed: network error - ${netErr}`);
     }
   }, []);
   const fetchBalance = useCallback(async () => {
     try {
       const res = await fetch(`/api/user/balance?userId=${USER_ID}`);
-      const json = await res.json() as ApiResponse<number>;
-      if (json.success && json.data !== undefined) {
-        setBalance(json.data);
+      let json: ApiResponse<number>;
+
+      try {
+        json = await res.json() as ApiResponse<number>;
+      } catch (parseErr) {
+        console.warn(`fetchBalance failed: JSON parse error - ${parseErr}`);
+        return;
       }
-    } catch (e) {
-      console.warn("Balance sync error:", e);
+
+      if (!res.ok || !json.success || json.data === undefined) {
+        console.warn(`fetchBalance failed: HTTP ${res.status} ${json.error || 'no data'}`);
+        return;
+      }
+
+      setBalance(json.data);
+    } catch (netErr) {
+      console.warn(`fetchBalance failed: network error - ${netErr}`);
     }
   }, []);
   useEffect(() => {

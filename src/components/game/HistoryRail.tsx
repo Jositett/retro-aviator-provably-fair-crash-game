@@ -22,7 +22,7 @@ export function HistoryRail({ history, onSelectRound }: HistoryRailProps) {
           <span className="text-[10px] font-mono text-zinc-700 uppercase italic">Awaiting network results...</span>
         )}
         {history.map((record, i) => (
-          <Tooltip key={record.id}>
+          <Tooltip key={record.id || i.toString()}>
             <TooltipTrigger asChild>
               <button
                 onClick={() => onSelectRound?.(record)}
