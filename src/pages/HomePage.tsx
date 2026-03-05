@@ -30,25 +30,54 @@ export function HomePage() {
   const [isConnected, setIsConnected] = useState(true);
   const serverOffsetRef = useRef<number>(0);
   const offsetBufferRef = useRef<number[]>([]);
+  const pollDelayRef = useRef(400);
+  const consecFailsRef = useRef(0);
+  const timeoutRef = useRef<NodeJS.Timeout>();
   const fetchState = useCallback(async () => {
     try {
       const start = Date.now();
       const res = await fetch('/api/game/state');
-      if (!res.ok) throw new Error('Network error');
-      const json = await res.json() as ApiResponse<GameState>;
+      if (!res.ok) {
+        const text = await res.text();
+        console.warn(`Game sync failed (HTTP ${res.status}): ${text.slice(0,200)}`);
+        consecFailsRef.current++;
+        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
+        if (res.status >= 500) pollDelayRef.current = Math.min(20000, pollDelayRef.current * 2);
+        return;
+      }
+      let json: ApiResponse<GameState>;
+      try {
+        json = await res.json() as ApiResponse<GameState>;
+      } catch (parseErr) {
+        console.warn(`Game sync failed [SyntaxError]: ${parseErr}`);
+        consecFailsRef.current++;
+        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
+        return;
+      }
+      if (json.success !== true || !json.data) {
+        console.warn('Game sync failed: invalid response structure', json);
+        consecFailsRef.current++;
+        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
+        return;
+      }
       const end = Date.now();
       const latency = (end - start) / 2;
-      if (json.success && json.data) {
-        setGameState(json.data);
-        setIsConnected(true);
+      setGameState(json.data);
+      setIsConnected(true);
+      if (json.data.serverTime) {
         const newOffset = json.data.serverTime - (end - latency);
         offsetBufferRef.current.push(newOffset);
         if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
         serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
       }
+      pollDelayRef.current = 400;
+      consecFailsRef.current = 0;
     } catch (netErr) {
-      console.warn("Failed to sync game state:", netErr);
-      setIsConnected(false);
+      if (netErr?.name !== 'AbortError') {
+        console.warn(`Game sync failed [${netErr?.name || 'unknown'}]: ${netErr?.message || netErr || 'no details'}`);
+      }
+      consecFailsRef.current++;
+      pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
     }
   }, []);
   const fetchBalance = useCallback(async () => {
@@ -63,12 +92,16 @@ export function HomePage() {
     }
   }, []);
   useEffect(() => {
-    const interval = setInterval(fetchState, 400);
+    const tick = () => {
+      fetchState().finally(() => {
+        timeoutRef.current = setTimeout(tick, pollDelayRef.current);
+      });
+    };
+    tick();
     const balanceInterval = setInterval(fetchBalance, 3000);
-    fetchState();
     fetchBalance();
     return () => {
-      clearInterval(interval);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       clearInterval(balanceInterval);
     };
   }, [fetchState, fetchBalance]);
