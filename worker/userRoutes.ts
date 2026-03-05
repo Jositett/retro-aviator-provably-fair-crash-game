@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Env } from './core-utils';
-import type { ApiResponse, GameState, Bet } from '@shared/types';
+import type { ApiResponse, GameState, Bet } from '../shared/types';
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const getDO = (c: any) => c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
     app.get('/api/game/state', async (c) => {

@@ -36,57 +36,30 @@ export function HomePage() {
     try {
       const start = Date.now();
       const res = await fetch('/api/game/state');
-      let json: ApiResponse<GameState>;
-      
-      try {
-        json = await res.json() as ApiResponse<GameState>;
-      } catch (parseErr) {
-        setIsConnected(false);
-        console.warn(`fetchState failed: JSON parse error - ${parseErr}`);
-        return;
-      }
-      
+      if (!res.ok) throw new Error('Network error');
+      const json = await res.json() as ApiResponse<GameState>;
       const end = Date.now();
       const latency = (end - start) / 2;
-      
-      if (!res.ok || !json.success || !json.data) {
-        setIsConnected(false);
-        console.warn(`fetchState failed: HTTP ${res.status} ${json.error || 'no data'}`);
-        return;
+      if (json.success && json.data) {
+        setGameState(json.data);
+        setIsConnected(true);
+        const newOffset = json.data.serverTime - (end - latency);
+        offsetBufferRef.current.push(newOffset);
+        if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
+        serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
       }
-      
-      setGameState(json.data);
-      setIsConnected(true);
-      const newOffset = json.data.serverTime - (end - latency);
-      offsetBufferRef.current.push(newOffset);
-      if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
-      serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
     } catch (netErr) {
       setIsConnected(false);
-      console.warn(`fetchState failed: network error - ${netErr}`);
     }
   }, []);
   const fetchBalance = useCallback(async () => {
     try {
       const res = await fetch(`/api/user/balance?userId=${USER_ID}`);
-      let json: ApiResponse<number>;
-
-      try {
-        json = await res.json() as ApiResponse<number>;
-      } catch (parseErr) {
-        console.warn(`fetchBalance failed: JSON parse error - ${parseErr}`);
-        return;
+      const json = await res.json() as ApiResponse<number>;
+      if (json.success && json.data !== undefined) {
+        setBalance(json.data);
       }
-
-      if (!res.ok || !json.success || json.data === undefined) {
-        console.warn(`fetchBalance failed: HTTP ${res.status} ${json.error || 'no data'}`);
-        return;
-      }
-
-      setBalance(json.data);
-    } catch (netErr) {
-      console.warn(`fetchBalance failed: network error - ${netErr}`);
-    }
+    } catch (netErr) {}
   }, []);
   useEffect(() => {
     const interval = setInterval(fetchState, 400);
@@ -166,75 +139,83 @@ export function HomePage() {
   const isCrashed = gameState?.phase === 'CRASHED';
   const flightPhase = isConnected ? (gameState?.phase || 'IDLE') : 'OFFLINE';
   return (
-    <div className="min-h-screen bg-[#020202] text-zinc-100 font-sans selection:bg-amber-500/30 overflow-x-hidden">
+    <div className="h-screen bg-[#020202] text-zinc-100 font-sans selection:bg-amber-500/30 overflow-hidden flex flex-col">
       <Toaster position="top-right" richColors theme="dark" />
       <ThemeToggle className="top-4 right-4" />
       <VerifierModal round={selectedRound} isOpen={verifierOpen} onOpenChange={setVerifierOpen} />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="py-8 md:py-10 lg:py-12">
-          <header className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-950/80 p-5 rounded-2xl border border-zinc-800/50 backdrop-blur-xl shadow-2xl">
-            <div className="flex items-center gap-5">
-              <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.4)]">
-                <Zap className="w-7 h-7 text-black fill-current" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black uppercase tracking-tighter font-mono italic">
-                  RETRO <span className="text-amber-500">AVIATOR</span>
-                </h1>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={cn("w-2 h-2 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
-                  <p className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Node: {flightPhase}</p>
-                </div>
+      <div className="flex-1 flex flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6">
+        <header className="shrink-0 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-950/80 p-4 rounded-2xl border border-zinc-800/50 backdrop-blur-xl shadow-2xl">
+          <div className="flex items-center gap-5">
+            <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)]">
+              <Zap className="w-6 h-6 text-black fill-current" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black uppercase tracking-tighter font-mono italic">
+                RETRO <span className="text-amber-500">AVIATOR</span>
+              </h1>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className={cn("w-2 h-2 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
+                <p className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Node: {flightPhase}</p>
               </div>
             </div>
-            <div className="flex items-center gap-4 w-full sm:w-auto">
-              <div className="flex-1 sm:flex-none flex flex-col items-end px-5 border-r border-zinc-800">
-                <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Credits</span>
-                <span className="text-xl font-black font-mono text-emerald-400">
-                  ${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <button onClick={() => setVerifierOpen(true)} className="flex items-center gap-2 text-[11px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-5 py-2.5 rounded-xl border border-amber-500/30 transition-all">
-                <ShieldCheck className="w-4 h-4" /> <span className="hidden md:inline">Verify</span>
-              </button>
-            </div>
-          </header>
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            <aside className="hidden lg:block lg:col-span-3 h-[650px] rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950/50 shadow-inner">
-              <LiveBetsTable activeBets={gameState?.activeBets || []} />
-            </aside>
-            <section className="lg:col-span-9 flex flex-col gap-6">
-              <div className="bg-zinc-900/20 rounded-2xl border border-zinc-800/80 overflow-hidden flex flex-col min-h-[550px] relative backdrop-blur-sm">
-                <HistoryRail history={gameState?.history || []} onSelectRound={setSelectedRound} />
-                <div className="flex-1 relative p-5 flex flex-col">
-                  <div className="flex-1 relative min-h-[380px]">
-                    <RadarCanvas elapsedMs={interpolatedMs} isCrashed={isCrashed} isFlying={gameState?.phase === 'FLYING'} />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
-                      {gameState?.phase === 'FLYING' && (
-                        <div className="text-8xl md:text-9xl font-black font-mono text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.4)] tracking-tighter transition-transform duration-100" style={{ transform: `scale(${1 + Math.min(currentMultiplier - 1, 100) * 0.005})` }}>
-                          {formatMultiplier(currentMultiplier)}
-                        </div>
-                      )}
-                      {isCrashed && (
-                        <div className="glitch-active flex flex-col items-center">
-                          <div className="text-8xl md:text-9xl font-black font-mono text-red-500 drop-shadow-[0_0_50px_rgba(239,68,68,0.7)] tracking-tighter">
-                            {formatMultiplier(gameState.lastCrashPoint)}
-                          </div>
-                          <span className="text-red-600 font-mono text-xs font-bold uppercase tracking-[0.5em] mt-2">Crashed</span>
-                        </div>
-                      )}
-                      {gameState?.phase === 'PREPARING' && (
-                        <div className="flex flex-col items-center gap-6">
-                          <div className="text-xl font-mono font-black text-amber-500 tracking-[0.4em] uppercase animate-pulse">PREPARING LAUNCH</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <CockpitControls balance={balance} gameState={gameState?.phase || 'PREPARING'} onPlaceBet={handlePlaceBet} onCashout={handleCashout} currentMultiplier={currentMultiplier} hasActiveBet={!!myBet} isWaiting={isWaitingForBet} />
-                </div>
-              </div>
-            </section>
           </div>
+          <div className="flex items-center gap-4 w-full sm:w-auto">
+            <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-r border-zinc-800">
+              <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Credits</span>
+              <span className="text-lg font-black font-mono text-emerald-400">
+                ${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            <button onClick={() => setVerifierOpen(true)} className="flex items-center gap-2 text-[10px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/30 transition-all">
+              <ShieldCheck className="w-4 h-4" /> <span className="hidden md:inline">Verify</span>
+            </button>
+          </div>
+        </header>
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <aside className="hidden lg:block lg:col-span-3 h-full rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950/50 shadow-inner">
+            <LiveBetsTable activeBets={gameState?.activeBets || []} />
+          </aside>
+          <section className="lg:col-span-9 flex flex-col h-full gap-4">
+            <div className="flex-1 flex flex-col bg-zinc-900/20 rounded-2xl border border-zinc-800/80 overflow-hidden relative backdrop-blur-sm min-h-0">
+              <HistoryRail history={gameState?.history || []} onSelectRound={setSelectedRound} />
+              <div className="flex-1 relative flex flex-col p-4 min-h-0">
+                <div className="flex-1 relative min-h-0">
+                  <RadarCanvas elapsedMs={interpolatedMs} isCrashed={isCrashed} isFlying={gameState?.phase === 'FLYING'} />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+                    {gameState?.phase === 'FLYING' && (
+                      <div className="text-7xl md:text-9xl font-black font-mono text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.4)] tracking-tighter transition-transform duration-100" style={{ transform: `scale(${1 + Math.min(currentMultiplier - 1, 100) * 0.005})` }}>
+                        {formatMultiplier(currentMultiplier)}
+                      </div>
+                    )}
+                    {isCrashed && (
+                      <div className="glitch-active flex flex-col items-center">
+                        <div className="text-7xl md:text-9xl font-black font-mono text-red-500 drop-shadow-[0_0_50px_rgba(239,68,68,0.7)] tracking-tighter">
+                          {formatMultiplier(gameState.lastCrashPoint)}
+                        </div>
+                        <span className="text-red-600 font-mono text-xs font-bold uppercase tracking-[0.5em] mt-2">Crashed</span>
+                      </div>
+                    )}
+                    {gameState?.phase === 'PREPARING' && (
+                      <div className="flex flex-col items-center gap-6">
+                        <div className="text-lg font-mono font-black text-amber-500 tracking-[0.4em] uppercase animate-pulse">PREPARING LAUNCH</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="shrink-0 mt-4">
+                  <CockpitControls 
+                    balance={balance} 
+                    gameState={gameState?.phase || 'PREPARING'} 
+                    onPlaceBet={handlePlaceBet} 
+                    onCashout={handleCashout} 
+                    currentMultiplier={currentMultiplier} 
+                    hasActiveBet={!!myBet} 
+                    isWaiting={isWaitingForBet} 
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Bet, RoundRecord } from '@shared/types';
-import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '@shared/game-logic';
+import type { GameState, Bet, RoundRecord } from '../shared/types';
+import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '../shared/game-logic';
 export class GlobalDurableObject extends DurableObject {
+  ctx: DurableObjectState;
   private state: GameState = {
     phase: 'PREPARING',
     startTime: Date.now(),
@@ -18,10 +19,11 @@ export class GlobalDurableObject extends DurableObject {
   private initialized = false;
   constructor(state: DurableObjectState, env: any) {
     super(state, env);
+    this.ctx = state;
     state.blockConcurrencyWhile(async () => {
       try {
-        const saved = await state.storage.get<GameState>("game_state");
-        const seeds = await state.storage.get<{current: string, next: string}>("seeds");
+        const saved = await this.ctx.storage.get<GameState>("game_state");
+        const seeds = await this.ctx.storage.get<{current: string, next: string}>("seeds");
         if (saved) {
           this.state = saved;
           this.state.history = (this.state.history || []).slice(0, 30);
@@ -35,7 +37,7 @@ export class GlobalDurableObject extends DurableObject {
         } else {
           this.currentServerSeed = await generateSeed();
           this.nextServerSeed = await generateSeed();
-          await state.storage.put('seeds', { current: this.currentServerSeed, next: this.nextServerSeed });
+          await this.ctx.storage.put('seeds', { current: this.currentServerSeed, next: this.nextServerSeed });
         }
         this.state.nextSeedHash = await hashSeed(this.nextServerSeed);
         this.initialized = true;
@@ -88,7 +90,6 @@ export class GlobalDurableObject extends DurableObject {
             await this.ctx.storage.put("game_state", this.state);
             await this.ctx.storage.put('seeds', { current: this.currentServerSeed, next: this.nextServerSeed });
           } else if (betChanged || Math.random() < 0.05) {
-            // Periodic or event-driven state persistence
             await this.ctx.storage.put("game_state", this.state);
           }
         } else if (this.state.phase === 'CRASHED') {
@@ -114,15 +115,15 @@ export class GlobalDurableObject extends DurableObject {
     bet.payout = payout;
     bet.cashedOut = true;
     bet.winningAmount = payout;
-    let balance = (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 10000.00;
-    balance += payout;
+    let balance = (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
+    balance += payout; // User already deducted 'amount' when placing bet, add total payout
     await this.ctx.storage.put(`balance_${userId}`, balance);
   }
   async getGameState(): Promise<GameState> {
     return { ...this.state, serverTime: Date.now() };
   }
   async getBalance(userId: string): Promise<number> {
-    return (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 10000.00;
+    return (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
   }
   async placeBet(userId: string, userName: string, amount: number, autoCashout: number | null): Promise<Bet> {
     if (this.state.phase !== 'PREPARING') throw new Error("Betting closed");
