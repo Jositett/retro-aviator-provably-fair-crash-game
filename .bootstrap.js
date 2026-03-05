@@ -78,7 +78,8 @@ function updateWranglerJsonc() {
 
 function runSetupCommands() {
     const commands = [
-    "bun add crypto-js@^4.2.0"
+    "bun add crypto-js@^4.2.0",
+    "bun add uuid"
 ];
     
     if (commands.length === 0) {
