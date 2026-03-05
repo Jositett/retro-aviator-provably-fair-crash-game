@@ -22,10 +22,10 @@ export function VerifierModal({ round, isOpen, onOpenChange }: VerifierModalProp
       setHash(round.seedHash);
     }
   }, [round]);
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (!seed || !hash) return;
-    const calculatedPoint = generateProvableCrashPoint(seed);
-    const isValid = verifyRound(seed, hash);
+    const calculatedPoint = await generateProvableCrashPoint(seed);
+    const isValid = await verifyRound(seed, hash);
     setResult({ crashPoint: calculatedPoint, isValid });
   };
   return (

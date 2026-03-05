@@ -1,4 +1,4 @@
-import { calculateMultiplier, generateCrashPoint } from '@shared/game-logic';
+import { calculateMultiplier } from '@shared/game-logic';
 export const GAME_SETTINGS = {
   PREPARATION_TIME: 5000,
   MAX_MULTIPLIER: 1000,
@@ -11,7 +11,7 @@ export function formatMultiplier(val: number): string {
   return val.toFixed(2) + 'x';
 }
 export function generateRandomCrashPoint(): number {
-  return generateCrashPoint();
+  return 1.0 + Math.random() * 20;
 }
 export function getMultiplierColor(val: number): string {
   if (val < 1.2) return 'text-slate-400';
