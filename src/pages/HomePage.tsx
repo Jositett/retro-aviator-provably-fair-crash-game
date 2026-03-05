@@ -8,9 +8,7 @@ import { VerifierModal } from '@/components/game/VerifierModal';
 import { calculateMultiplier } from '@shared/game-logic';
 import { formatMultiplier } from '@/lib/game-utils';
 import { Toaster, toast } from 'sonner';
-import { Sparkles, Terminal, Activity, ShieldCheck, Hash, Users, Zap } from 'lucide-react';
-import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Zap, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GameState, ApiResponse, Bet, RoundRecord } from '@shared/types';
 const getPersistentUserId = () => {
@@ -49,6 +47,7 @@ export function HomePage() {
         serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
       }
     } catch (netErr) {
+      console.warn("Failed to sync game state:", netErr);
       setIsConnected(false);
     }
   }, []);
@@ -59,7 +58,9 @@ export function HomePage() {
       if (json.success && json.data !== undefined) {
         setBalance(json.data);
       }
-    } catch (netErr) {}
+    } catch (netErr) {
+      /* Silently fail balance polling to avoid UI jitter; server state is primary source of truth */
+    }
   }, []);
   useEffect(() => {
     const interval = setInterval(fetchState, 400);

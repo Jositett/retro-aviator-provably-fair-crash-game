@@ -12,6 +12,11 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
   const requestRef = useRef<number>();
   const [rocketImg, setRocketImg] = useState<HTMLImageElement | null>(null);
   const starsRef = useRef<{ x: number, y: number, size: number, speed: number }[]>([]);
+  // Use a ref for props to avoid expensive re-renders/effect resets 60 times per second
+  const propsRef = useRef({ elapsedMs, isCrashed, isFlying });
+  useEffect(() => {
+    propsRef.current = { elapsedMs, isCrashed, isFlying };
+  }, [elapsedMs, isCrashed, isFlying]);
   useEffect(() => {
     const img = new Image();
     img.src = ROCKET_SVG;
@@ -40,8 +45,9 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
     };
     const draw = (width: number, height: number) => {
       if (width === 0 || height === 0) return;
+      const { elapsedMs: eMs, isCrashed: crashed, isFlying: flying } = propsRef.current;
       ctx.clearRect(0, 0, width, height);
-      const currentM = calculateMultiplier(elapsedMs);
+      const currentM = calculateMultiplier(eMs);
       const velocity = Math.log(currentM + 1) * 2;
       // Stars Parallax
       ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
@@ -56,27 +62,27 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       ctx.strokeStyle = 'rgba(245, 158, 11, 0.05)';
       ctx.lineWidth = 1;
       const gridSize = 60;
-      const xOffset = (elapsedMs * 0.05) % gridSize;
-      const yOffset = (elapsedMs * 0.01) % gridSize;
+      const xOffset = (eMs * 0.05) % gridSize;
+      const yOffset = (eMs * 0.01) % gridSize;
       for (let x = -xOffset; x <= width; x += gridSize) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
       for (let y = -yOffset; y <= height; y += gridSize) {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
-      if (!isFlying && !isCrashed) return;
+      if (!flying && !crashed) return;
       const maxVisibleMultiplier = Math.max(2.5, currentM * 1.5);
-      const timeScale = Math.max(10000, elapsedMs * 1.3);
+      const timeScale = Math.max(10000, eMs * 1.3);
       const safeMultiplierScale = maxVisibleMultiplier - 1 || 1;
       // Draw Flight Path
       ctx.beginPath();
-      ctx.strokeStyle = isCrashed ? 'rgba(239, 68, 68, 0.6)' : '#f59e0b';
+      ctx.strokeStyle = crashed ? 'rgba(239, 68, 68, 0.6)' : '#f59e0b';
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
       ctx.moveTo(0, height);
       const steps = 60;
       for (let i = 1; i <= steps; i++) {
-        const t = (elapsedMs / steps) * i;
+        const t = (eMs / steps) * i;
         const m = calculateMultiplier(t);
         const px = (t / timeScale) * width;
         const py = height - ((m - 1) / safeMultiplierScale) * height;
@@ -84,21 +90,23 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       }
       ctx.stroke();
       // Plane Position
-      const planeX = (elapsedMs / timeScale) * width;
+      const planeX = (eMs / timeScale) * width;
       const planeY = height - ((currentM - 1) / safeMultiplierScale) * height;
       if (rocketImg) {
         ctx.save();
         ctx.translate(planeX, planeY);
-        ctx.rotate(Math.PI / 8); // Slight forward lean
+        ctx.rotate(Math.PI / 8); 
         ctx.drawImage(rocketImg, -16, -16, 32, 32);
         ctx.restore();
       }
-      if (isCrashed) {
+      if (crashed) {
         ctx.beginPath();
         ctx.arc(planeX, planeY, (explosionFrame % 60) * 1.5, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(239, 68, 68, ${1 - (explosionFrame % 60) / 60})`;
         ctx.stroke();
         explosionFrame++;
+      } else {
+        explosionFrame = 0;
       }
     };
     const resizeObserver = new ResizeObserver(() => resize());
@@ -114,7 +122,7 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       resizeObserver.disconnect();
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [elapsedMs, isCrashed, isFlying, rocketImg]);
+  }, [rocketImg]); // Only restart when rocket image is ready; keep rest in propsRef
   return (
     <div ref={containerRef} className="relative w-full h-full bg-[#030303] rounded-xl border border-amber-500/10 overflow-hidden shadow-inner">
       <canvas ref={canvasRef} className="w-full h-full block" />

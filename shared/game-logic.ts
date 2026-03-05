@@ -19,16 +19,18 @@ export async function sha256(input: string): Promise<string> {
 }
 /**
  * f(t) = 1.0 + 0.01 * (e^(k*t) - 1)
- * Capped at MAX_MULTIPLIER and fixed to 2 decimal places.
+ * Capped at MAX_MULTIPLIER and strictly floored to 2 decimal places to ensure client/server sync.
  */
 export function calculateMultiplier(elapsedMs: number): number {
   if (elapsedMs <= 0) return 1.0;
   const raw = 1.0 + 0.01 * (Math.exp(GAME_CONSTANTS.GROWTH_EXPONENT * elapsedMs) - 1);
   const multiplier = Math.min(raw, GAME_CONSTANTS.MAX_MULTIPLIER);
+  // Ensure the decimal rounding is identical everywhere
   return Math.floor(multiplier * 100) / 100;
 }
 /**
  * Deterministically derives a crash point from a server seed using SHA-256.
+ * Pattern follows standard crash industry algorithms.
  */
 export async function generateProvableCrashPoint(seed: string): Promise<number> {
   try {
@@ -36,13 +38,13 @@ export async function generateProvableCrashPoint(seed: string): Promise<number> 
     const hex = hash.substring(0, 13);
     const r = parseInt(hex, 16);
     const e = Math.pow(2, 52);
-    // House edge ~3%
+    // House edge (approx 3%)
     if (r % 33 === 0) return 1.00;
     const multiplier = Math.floor((100 * e - r) / (e - r)) / 100;
     return Math.max(1.00, Math.min(multiplier, GAME_CONSTANTS.MAX_MULTIPLIER));
   } catch (err) {
     console.error("Crash point generation error:", err);
-    return 1.00;
+    return 1.00; // Fail-safe
   }
 }
 export async function verifyRound(seed: string, expectedHash: string): Promise<boolean> {

@@ -2,7 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import type { GameState, Bet, RoundRecord } from '../shared/types';
 import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '../shared/game-logic';
 export class GlobalDurableObject extends DurableObject {
-  ctx: DurableObjectState;
   private state: GameState = {
     phase: 'PREPARING',
     startTime: Date.now(),
@@ -19,7 +18,6 @@ export class GlobalDurableObject extends DurableObject {
   private initialized = false;
   constructor(state: DurableObjectState, env: any) {
     super(state, env);
-    this.ctx = state;
     state.blockConcurrencyWhile(async () => {
       try {
         const saved = await this.ctx.storage.get<GameState>("game_state");
@@ -50,6 +48,10 @@ export class GlobalDurableObject extends DurableObject {
   private async runLoop() {
     while (true) {
       try {
+        if (!this.initialized) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          continue;
+        }
         const now = Date.now();
         this.state.serverTime = now;
         const elapsed = now - this.state.startTime;
@@ -63,7 +65,6 @@ export class GlobalDurableObject extends DurableObject {
           }
         } else if (this.state.phase === 'FLYING') {
           this.state.currentMultiplier = calculateMultiplier(elapsed);
-          // Check Auto-Cashouts
           let betChanged = false;
           for (const bet of this.state.activeBets) {
             if (!bet.cashedOut && bet.autoCashout && this.state.currentMultiplier >= bet.autoCashout) {
@@ -83,7 +84,6 @@ export class GlobalDurableObject extends DurableObject {
               timestamp: now
             };
             this.state.history = [record, ...this.state.history].slice(0, 30);
-            // Rotate Seeds
             this.currentServerSeed = this.nextServerSeed;
             this.nextServerSeed = await generateSeed();
             this.state.nextSeedHash = await hashSeed(this.nextServerSeed);
@@ -116,7 +116,7 @@ export class GlobalDurableObject extends DurableObject {
     bet.cashedOut = true;
     bet.winningAmount = payout;
     let balance = (await this.ctx.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
-    balance += payout; // User already deducted 'amount' when placing bet, add total payout
+    balance += payout;
     await this.ctx.storage.put(`balance_${userId}`, balance);
   }
   async getGameState(): Promise<GameState> {
