@@ -28,10 +28,10 @@ export function HistoryRail({ history, onSelectRound }: HistoryRailProps) {
                 onClick={() => onSelectRound?.(record)}
                 className={cn(
                   "group px-2.5 py-1 rounded-md bg-zinc-900/50 border border-zinc-800 text-[11px] font-mono font-bold whitespace-nowrap transition-all hover:bg-zinc-800 hover:border-zinc-700 active:scale-95 flex items-center gap-1.5",
-                  getMultiplierColor(record.crashPoint)
+                  getMultiplierColor(record.crashPoint ?? 1.00)
                 )}
               >
-                {record.crashPoint.toFixed(2)}x
+                {(record.crashPoint ?? 1.00).toFixed(2)}x
                 <ShieldCheck className="w-3 h-3 text-zinc-600 group-hover:text-amber-500/50 transition-colors" />
               </button>
             </TooltipTrigger>
