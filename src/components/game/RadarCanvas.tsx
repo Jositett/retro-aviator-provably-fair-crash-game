@@ -18,23 +18,20 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
-      // Rocket body
       ctx.fillStyle = isCrashed ? '#ef4444' : '#ffffff';
       ctx.shadowBlur = 15;
       ctx.shadowColor = isCrashed ? '#ef4444' : '#f59e0b';
       ctx.beginPath();
-      // Body (pointing right)
-      ctx.moveTo(12, 0); // Nose
-      ctx.lineTo(-4, -5); // Top fin corner
-      ctx.lineTo(-8, -8); // Top fin tip
-      ctx.lineTo(-6, -3); // Body joint
-      ctx.lineTo(-8, 0);  // Back center
-      ctx.lineTo(-6, 3);  // Body joint
-      ctx.lineTo(-8, 8);  // Bottom fin tip
-      ctx.lineTo(-4, 5);  // Bottom fin corner
+      ctx.moveTo(12, 0); 
+      ctx.lineTo(-4, -5); 
+      ctx.lineTo(-8, -8); 
+      ctx.lineTo(-6, -3); 
+      ctx.lineTo(-8, 0);  
+      ctx.lineTo(-6, 3);  
+      ctx.lineTo(-8, 8);  
+      ctx.lineTo(-4, 5);  
       ctx.closePath();
       ctx.fill();
-      // Exhaust flame
       if (!isCrashed && isFlying) {
         ctx.shadowBlur = 10;
         ctx.fillStyle = Math.random() > 0.5 ? '#f59e0b' : '#fbbf24';
@@ -56,7 +53,6 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.stroke();
-      // Particles
       for (let i = 0; i < 8; i++) {
         const pAngle = (i * Math.PI * 2) / 8;
         const pDist = radius * 1.2;
@@ -78,6 +74,9 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
       if (!isFlying && !isCrashed) return;
+      const currentM = calculateMultiplier(elapsedMs);
+      const maxVisibleMultiplier = Math.max(2.5, currentM * 1.4);
+      const timeScale = Math.max(10000, elapsedMs * 1.2);
       // Draw Path Curve
       ctx.beginPath();
       ctx.strokeStyle = isCrashed ? 'rgba(239, 68, 68, 0.4)' : '#f59e0b';
@@ -89,19 +88,18 @@ export function RadarCanvas({ elapsedMs, isCrashed, isFlying }: RadarCanvasProps
       for (let i = 0; i <= points; i++) {
         const t = (elapsedMs / points) * i;
         const m = calculateMultiplier(t);
-        const px = (t / 15000) * width;
-        const py = height - ((m - 1) / 5) * height;
+        const px = (t / timeScale) * width;
+        const py = height - ((m - 1) / (maxVisibleMultiplier - 1)) * height;
         if (px <= width && py >= 0) ctx.lineTo(px, py);
       }
       ctx.stroke();
       ctx.shadowBlur = 0;
-      // Calculate current position and angle
-      const currentM = calculateMultiplier(elapsedMs);
+      // Position
       const prevM = calculateMultiplier(elapsedMs - 16);
-      const planeX = (elapsedMs / 15000) * width;
-      const planeY = height - ((currentM - 1) / 5) * height;
-      const prevX = ((elapsedMs - 16) / 15000) * width;
-      const prevY = height - ((prevM - 1) / 5) * height;
+      const planeX = (elapsedMs / timeScale) * width;
+      const planeY = height - ((currentM - 1) / (maxVisibleMultiplier - 1)) * height;
+      const prevX = ((elapsedMs - 16) / timeScale) * width;
+      const prevY = height - ((prevM - 1) / (maxVisibleMultiplier - 1)) * height;
       const angle = Math.atan2(planeY - prevY, planeX - prevX);
       if (isCrashed) {
         drawExplosion(ctx, planeX, planeY, explosionFrame++);

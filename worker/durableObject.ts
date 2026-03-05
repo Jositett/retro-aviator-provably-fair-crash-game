@@ -23,12 +23,23 @@ export class GlobalDurableObject extends DurableObject {
       const seeds = await this.ctx.storage.get<{current: string, next: string}>("seeds");
       if (saved) {
         this.state = saved;
+        // On restart, if it was flying, we treat it as a fresh start to prevent ghost states
         this.state.phase = 'PREPARING';
         this.state.startTime = Date.now();
         this.state.activeBets = [];
         await this.ctx.storage.put("game_state", this.state);
       }
-      if(seeds){ this.currentServerSeed=seeds.current; this.nextServerSeed=seeds.next; } else { this.currentServerSeed = await generateSeed(); this.nextServerSeed = await generateSeed(); await this.ctx.storage.put('seeds', {current: this.currentServerSeed, next: this.nextServerSeed}); } ; this.state.nextSeedHash = await hashSeed(this.nextServerSeed); this.initialized=true; this.runLoop();
+      if(seeds){ 
+        this.currentServerSeed = seeds.current; 
+        this.nextServerSeed = seeds.next; 
+      } else { 
+        this.currentServerSeed = await generateSeed(); 
+        this.nextServerSeed = await generateSeed(); 
+        await this.ctx.storage.put('seeds', {current: this.currentServerSeed, next: this.nextServerSeed}); 
+      } 
+      this.state.nextSeedHash = await hashSeed(this.nextServerSeed); 
+      this.initialized = true; 
+      this.runLoop();
     });
   }
   private async runLoop() {
@@ -37,12 +48,55 @@ export class GlobalDurableObject extends DurableObject {
       this.state.serverTime = now;
       const elapsed = now - this.state.startTime;
       if (this.state.phase === 'PREPARING') {
-        if(elapsed >= GAME_CONSTANTS.PREPARATION_MS){ this.currentCrashPoint = await generateProvableCrashPoint(this.currentServerSeed); this.state.phase = 'FLYING'; this.state.startTime = now; this.state.currentMultiplier = 1.0; }
+        if(elapsed >= GAME_CONSTANTS.PREPARATION_MS){ 
+          this.currentCrashPoint = await generateProvableCrashPoint(this.currentServerSeed); 
+          this.state.phase = 'FLYING'; 
+          this.state.startTime = now; 
+          this.state.currentMultiplier = 1.0; 
+          await this.ctx.storage.put("game_state", this.state);
+        }
       } else if (this.state.phase === 'FLYING') {
         this.state.currentMultiplier = calculateMultiplier(elapsed);
-        const betsCopy = [...this.state.activeBets]; for(const bet of betsCopy){ if(!bet.cashedOut && bet.autoCashout && this.state.currentMultiplier >= bet.autoCashout){ await this.processCashout(bet.userId, bet.autoCashout); } } if(this.state.currentMultiplier >= this.currentCrashPoint){ this.state.phase = 'CRASHED'; this.state.startTime = now; this.state.lastCrashPoint = this.currentCrashPoint; const record: RoundRecord = { id: crypto.randomUUID(), crashPoint: this.currentCrashPoint, serverSeed: this.currentServerSeed, seedHash: await hashSeed(this.currentServerSeed), timestamp: now }; this.state.history = [record, ...this.state.history].slice(0, 30); const newSeed = await generateSeed(); this.currentServerSeed = this.nextServerSeed; this.nextServerSeed = newSeed; this.state.nextSeedHash = await hashSeed(this.nextServerSeed); await this.ctx.storage.put('game_state', this.state); await this.ctx.storage.put('seeds', { current: this.currentServerSeed, next: this.nextServerSeed }); }
+        let stateChanged = false;
+        const betsCopy = [...this.state.activeBets]; 
+        for(const bet of betsCopy){ 
+          if(!bet.cashedOut && bet.autoCashout && this.state.currentMultiplier >= bet.autoCashout){ 
+            await this.processCashout(bet.userId, bet.autoCashout); 
+            stateChanged = true;
+          } 
+        } 
+        if(this.state.currentMultiplier >= this.currentCrashPoint){ 
+          this.state.phase = 'CRASHED'; 
+          this.state.startTime = now; 
+          this.state.lastCrashPoint = this.currentCrashPoint; 
+          const record: RoundRecord = { 
+            id: crypto.randomUUID(), 
+            crashPoint: this.currentCrashPoint, 
+            serverSeed: this.currentServerSeed, 
+            seedHash: await hashSeed(this.currentServerSeed), 
+            timestamp: now 
+          }; 
+          this.state.history = [record, ...this.state.history].slice(0, 30); 
+          const newSeed = await generateSeed(); 
+          this.currentServerSeed = this.nextServerSeed; 
+          this.nextServerSeed = newSeed; 
+          this.state.nextSeedHash = await hashSeed(this.nextServerSeed); 
+          await this.ctx.storage.put('game_state', this.state); 
+          await this.ctx.storage.put('seeds', { current: this.currentServerSeed, next: this.nextServerSeed }); 
+          stateChanged = true;
+        }
+        // Periodic sync of state during flight to ensure activeBets persistence
+        if (!stateChanged && Math.random() < 0.1) {
+          await this.ctx.storage.put("game_state", this.state);
+        }
       } else if (this.state.phase === 'CRASHED') {
-        if(elapsed >= GAME_CONSTANTS.COOLDOWN_MS){ this.state.phase = 'PREPARING'; this.state.startTime = now; this.state.activeBets = []; this.state.currentMultiplier = 1.0; }
+        if(elapsed >= GAME_CONSTANTS.COOLDOWN_MS){ 
+          this.state.phase = 'PREPARING'; 
+          this.state.startTime = now; 
+          this.state.activeBets = []; 
+          this.state.currentMultiplier = 1.0; 
+          await this.ctx.storage.put("game_state", this.state);
+        }
       }
       await new Promise(resolve => setTimeout(resolve, GAME_CONSTANTS.TICK_RATE_MS));
     }
@@ -71,6 +125,7 @@ export class GlobalDurableObject extends DurableObject {
       winningAmount: 0
     };
     this.state.activeBets.push(bet);
+    await this.ctx.storage.put("game_state", this.state);
     return bet;
   }
   async processCashout(userId: string, targetMultiplier?: number): Promise<Bet> {
@@ -86,6 +141,7 @@ export class GlobalDurableObject extends DurableObject {
     let balance = await this.getBalance(userId);
     balance += payout;
     await this.ctx.storage.put(`balance_${userId}`, balance);
+    await this.ctx.storage.put("game_state", this.state);
     return bet;
   }
   async getDemoItems() { return []; }

@@ -8,7 +8,9 @@ import { VerifierModal } from '@/components/game/VerifierModal';
 import { calculateMultiplier } from '@shared/game-logic';
 import { formatMultiplier } from '@/lib/game-utils';
 import { Toaster, toast } from 'sonner';
-import { Sparkles, Terminal, Activity, ShieldCheck, Hash } from 'lucide-react';
+import { Sparkles, Terminal, Activity, ShieldCheck, Hash, Users } from 'lucide-react';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { GameState, ApiResponse, Bet, RoundRecord } from '@shared/types';
 const USER_ID = 'demo-user-' + Math.random().toString(36).slice(2, 7);
@@ -59,7 +61,7 @@ export function HomePage() {
     const loop = () => {
       if (gameState) {
         const now = Date.now() + serverOffsetRef.current;
-        const elapsed = gameState.phase === 'FLYING' 
+        const elapsed = gameState.phase === 'FLYING'
           ? Math.max(0, now - gameState.startTime)
           : (gameState.phase === 'CRASHED' ? (gameState.serverTime - gameState.startTime) : 0);
         setInterpolatedMs(elapsed);
@@ -143,7 +145,23 @@ export function HomePage() {
                 <p className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Proprietary Flight Logic v4.2</p>
               </div>
             </div>
-            <div className="flex items-center gap-4 w-full sm:w-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Mobile Bets Drawer Trigger */}
+              <div className="lg:hidden">
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" size="icon" className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800">
+                      <Users className="w-4 h-4 text-amber-500" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="w-[300px] p-0 bg-zinc-950 border-zinc-800">
+                    <SheetHeader className="p-4 border-b border-zinc-800">
+                      <SheetTitle className="text-zinc-400 font-mono uppercase text-xs tracking-widest">Global Activity</SheetTitle>
+                    </SheetHeader>
+                    <LiveBetsTable activeBets={gameState?.activeBets || []} />
+                  </SheetContent>
+                </Sheet>
+              </div>
               <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-r border-zinc-800">
                 <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">Available Credits</span>
                 <span className="text-lg font-bold font-mono text-emerald-400">${balance.toFixed(2)}</span>
@@ -160,7 +178,7 @@ export function HomePage() {
           {/* Main Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Sidebar - Desktop */}
-            <aside className="hidden lg:block lg:col-span-3 h-[600px] rounded-xl overflow-hidden border border-zinc-800">
+            <aside className="hidden lg:block lg:col-span-3 h-[600px] rounded-xl overflow-hidden border border-zinc-800 bg-black/20">
               <LiveBetsTable activeBets={gameState?.activeBets || []} />
             </aside>
             {/* Game Arena */}
@@ -209,7 +227,7 @@ export function HomePage() {
                     <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end pointer-events-none z-40">
                       <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500 bg-black/80 px-3 py-2 rounded-lg border border-zinc-800">
                         <Activity className="w-3 h-3 text-emerald-500" />
-                        <span className="opacity-70">TELEMETRY: ACTIVE // LATENCY: 24MS</span>
+                        <span className="opacity-70">TELEMETRY: ACTIVE // NODES: SYNCED</span>
                       </div>
                       {gameState?.nextSeedHash && (
                         <div className="hidden md:flex items-center gap-3 text-[9px] font-mono text-zinc-600 bg-black/40 px-3 py-2 rounded-lg border border-zinc-800/50">
@@ -238,14 +256,14 @@ export function HomePage() {
           {/* Footer Metadata */}
           <footer className="mt-8 pt-8 border-t border-zinc-900 flex flex-col md:flex-row items-center justify-between gap-4 text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
             <div className="flex items-center gap-4">
-              <span className="flex items-center gap-2"><Terminal className="w-3 h-3" /> System: Authoritative Global DO</span>
+              <span className="flex items-center gap-2"><Terminal className="w-3 h-3" /> System: Global Durable Object</span>
               <span>•</span>
               <span>Protocol: SHA-256 Verified</span>
             </div>
             <div className="flex gap-6">
               <span className="hover:text-amber-500 transition-colors cursor-help">TOS</span>
               <span className="hover:text-amber-500 transition-colors cursor-help">Fairness Policy</span>
-              <span className="text-zinc-800">BUILD_ID: RADAR_04.2.0</span>
+              <span className="text-zinc-800">BUILD: RADAR_04.2.0</span>
             </div>
           </footer>
         </div>
