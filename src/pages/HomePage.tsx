@@ -36,48 +36,35 @@ export function HomePage() {
   const fetchState = useCallback(async () => {
     try {
       const start = Date.now();
-      const res = await fetch('/api/game/state');
+      const res = await fetch('/api/game/state', {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       if (!res.ok) {
         const text = await res.text();
-        console.warn(`Game sync failed (HTTP ${res.status}): ${text.slice(0,200)}`);
-        consecFailsRef.current++;
-        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
-        if (res.status >= 500) pollDelayRef.current = Math.min(20000, pollDelayRef.current * 2);
-        return;
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
       }
-      let json: ApiResponse<GameState>;
-      try {
-        json = await res.json() as ApiResponse<GameState>;
-      } catch (parseErr) {
-        console.warn(`Game sync failed [SyntaxError]: ${parseErr}`);
-        consecFailsRef.current++;
-        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
-        return;
-      }
-      if (json.success !== true || !json.data) {
-        console.warn('Game sync failed: invalid response structure', json);
-        consecFailsRef.current++;
-        pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
-        return;
+      const json = await res.json() as ApiResponse<GameState>;
+      if (!json.success || !json.data) {
+        throw new Error(json.error || 'Invalid API response');
       }
       const end = Date.now();
       const latency = (end - start) / 2;
       setGameState(json.data);
       setIsConnected(true);
+      consecFailsRef.current = 0;
+      pollDelayRef.current = 400;
       if (json.data.serverTime) {
         const newOffset = json.data.serverTime - (end - latency);
         offsetBufferRef.current.push(newOffset);
         if (offsetBufferRef.current.length > 5) offsetBufferRef.current.shift();
         serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
       }
-      pollDelayRef.current = 400;
-      consecFailsRef.current = 0;
-    } catch (netErr) {
-      if (netErr?.name !== 'AbortError') {
-        console.warn(`Game sync failed [${netErr?.name || 'unknown'}]: ${netErr?.message || netErr || 'no details'}`);
-      }
+    } catch (err) {
+      console.error("[SYNC ERROR]", err);
+      setIsConnected(false);
       consecFailsRef.current++;
-      pollDelayRef.current = Math.min(10000, 400 * Math.pow(2, consecFailsRef.current));
+      // Exponential backoff for polling on errors
+      pollDelayRef.current = Math.min(5000, 400 * Math.pow(1.5, consecFailsRef.current));
     }
   }, []);
   const fetchBalance = useCallback(async () => {
@@ -88,19 +75,21 @@ export function HomePage() {
         setBalance(json.data);
       }
     } catch (netErr) {
-      /* Silently fail balance polling to avoid UI jitter; server state is primary source of truth */
+      // Background balance fetch failures are non-critical
     }
   }, []);
   useEffect(() => {
-    const tick = () => {
-      fetchState().finally(() => {
-        timeoutRef.current = setTimeout(tick, pollDelayRef.current);
-      });
+    let isActive = true;
+    const tick = async () => {
+      if (!isActive) return;
+      await fetchState();
+      timeoutRef.current = setTimeout(tick, pollDelayRef.current);
     };
     tick();
-    const balanceInterval = setInterval(fetchBalance, 3000);
+    const balanceInterval = setInterval(fetchBalance, 5000);
     fetchBalance();
     return () => {
+      isActive = false;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       clearInterval(balanceInterval);
     };
@@ -234,17 +223,22 @@ export function HomePage() {
                         <div className="text-lg font-mono font-black text-amber-500 tracking-[0.4em] uppercase animate-pulse">PREPARING LAUNCH</div>
                       </div>
                     )}
+                    {!isConnected && (
+                      <div className="bg-black/80 px-4 py-2 rounded border border-red-500 text-red-500 font-mono text-xs uppercase animate-pulse">
+                        Synchronizing with network node...
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="shrink-0 mt-4">
-                  <CockpitControls 
-                    balance={balance} 
-                    gameState={gameState?.phase || 'PREPARING'} 
-                    onPlaceBet={handlePlaceBet} 
-                    onCashout={handleCashout} 
-                    currentMultiplier={currentMultiplier} 
-                    hasActiveBet={!!myBet} 
-                    isWaiting={isWaitingForBet} 
+                  <CockpitControls
+                    balance={balance}
+                    gameState={gameState?.phase || 'PREPARING'}
+                    onPlaceBet={handlePlaceBet}
+                    onCashout={handleCashout}
+                    currentMultiplier={currentMultiplier}
+                    hasActiveBet={!!myBet}
+                    isWaiting={isWaitingForBet}
                   />
                 </div>
               </div>
