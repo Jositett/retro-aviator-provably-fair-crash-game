@@ -1,6 +1,6 @@
 # Retro Aviator Crash
 
-[![Deploy to Cloudflare][cloudflarebutton]]
+[![Deploy to Cloudflare][![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Jositett/retro-aviator-provably-fair-crash-game)]
 
 A thrilling retro-styled crash game built on Cloudflare Workers. Bet on a multiplier that increases until it crashes—cash out before it's too late! Features real-time gameplay, persistent state via Durable Objects, and a responsive UI with modern animations.
 
@@ -77,7 +77,7 @@ Deploy to Cloudflare Workers with Pages integration:
    ```
    Or one-click:
 
-   [cloudflarebutton]
+   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Jositett/retro-aviator-provably-fair-crash-game)
 
 Custom domain and bindings configured in `wrangler.jsonc`. Assets served as SPA. Durable Objects auto-migrate.
 
