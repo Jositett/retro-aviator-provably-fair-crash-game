@@ -1,8 +1,8 @@
-import { DurableObject, DurableObjectState } from "cloudflare:workers";
+import { DurableObject } from "cloudflare:workers";
 import type { GameState, Bet, RoundRecord } from '../shared/types';
 import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '../shared/game-logic';
 export class GlobalDurableObject extends DurableObject {
-  state: DurableObjectState;
+  state!: any;
   env: any;
   
   private gameState: GameState = {
@@ -19,7 +19,7 @@ export class GlobalDurableObject extends DurableObject {
   private nextServerSeed: string = '';
   private currentCrashPoint: number = 1.0;
   private initialized = false;
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: any, env: any) {
     super(state, env);
     this.state = state;
     this.env = env;
