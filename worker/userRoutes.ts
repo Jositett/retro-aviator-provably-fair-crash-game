@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Env } from './core-utils';
-import type { ApiResponse, GameState, Bet } from '../shared/types';
+import type { ApiResponse, GameState, Bet, UserStats } from '../shared/types';
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const getDO = (c: any) => c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
     app.get('/api/game/state', async (c) => {
@@ -33,5 +33,10 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         } catch (e: any) {
             return c.json({ success: false, error: e.message }, 400);
         }
+    });
+    app.get('/api/leaderboard', async (c) => {
+        const stub = getDO(c);
+        const stats = await stub.getLeaderboard();
+        return c.json({ success: true, data: stats } satisfies ApiResponse<UserStats[]>);
     });
 }

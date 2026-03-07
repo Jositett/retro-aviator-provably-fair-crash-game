@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Bet, RoundRecord } from '../shared/types';
-import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, hashSeed } from '../shared/game-logic';
+import type { GameState, Bet, RoundRecord, UserStats } from '../shared/types';
+import { GAME_CONSTANTS, calculateMultiplier, generateProvableCrashPoint, generateSeed, getRandomPreparationMs, hashSeed } from '../shared/game-logic';
 export class GlobalDurableObject extends DurableObject {
   state!: any;
   env: any;
@@ -9,6 +9,7 @@ export class GlobalDurableObject extends DurableObject {
     phase: 'PREPARING',
     startTime: Date.now(),
     serverTime: Date.now(),
+    preparationMs: getRandomPreparationMs(),
     lastCrashPoint: 0,
     history: [],
     activeBets: [],
@@ -25,13 +26,14 @@ export class GlobalDurableObject extends DurableObject {
     this.env = env;
     state.blockConcurrencyWhile(async () => {
       try {
-        const saved = await this.state.storage.get<GameState>("game_state");
-        const seeds = await this.state.storage.get<{current: string, next: string}>("seeds");
+        const saved = await this.state.storage.get("game_state") as GameState | undefined;
+        const seeds = await this.state.storage.get("seeds") as {current: string, next: string} | undefined;
         if (saved) {
           this.gameState = saved;
           this.gameState.history = Array.isArray(this.gameState.history) ? this.gameState.history.slice(0, 30) : [];
           this.gameState.phase = 'PREPARING';
           this.gameState.startTime = Date.now();
+          this.gameState.preparationMs = getRandomPreparationMs();
           this.gameState.activeBets = [];
         }
         if (seeds) {
@@ -61,7 +63,7 @@ export class GlobalDurableObject extends DurableObject {
         this.gameState.serverTime = now;
         const elapsed = now - this.gameState.startTime;
         if (this.gameState.phase === 'PREPARING') {
-          if (elapsed >= GAME_CONSTANTS.PREPARATION_MS) {
+          if (elapsed >= this.gameState.preparationMs) {
             this.currentCrashPoint = await generateProvableCrashPoint(this.currentServerSeed);
             this.gameState.phase = 'FLYING';
             this.gameState.startTime = now;
@@ -101,6 +103,7 @@ export class GlobalDurableObject extends DurableObject {
           if (elapsed >= GAME_CONSTANTS.COOLDOWN_MS) {
             this.gameState.phase = 'PREPARING';
             this.gameState.startTime = now;
+            this.gameState.preparationMs = getRandomPreparationMs();
             this.gameState.activeBets = [];
             this.gameState.currentMultiplier = 1.0;
             await this.state.storage.put("game_state", this.gameState);
@@ -120,9 +123,10 @@ export class GlobalDurableObject extends DurableObject {
     bet.payout = payout;
     bet.cashedOut = true;
     bet.winningAmount = payout;
-    let balance = (await this.state.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
+    let balance = (await this.state.storage.get(`balance_${userId}`) as number | undefined) ?? 1000.00;
     balance += payout;
     await this.state.storage.put(`balance_${userId}`, balance);
+    await this.updateUserStats(bet.userId, bet.userName, bet.amount, payout, multiplier);
   }
   async getGameState(): Promise<GameState> {
     return { 
@@ -133,7 +137,7 @@ export class GlobalDurableObject extends DurableObject {
     };
   }
   async getBalance(userId: string): Promise<number> {
-    return (await this.state.storage.get<number>(`balance_${userId}`)) ?? 1000.00;
+    return (await this.state.storage.get(`balance_${userId}`) as number | undefined) ?? 1000.00;
   }
   async placeBet(userId: string, userName: string, amount: number, autoCashout: number | null): Promise<Bet> {
     if (this.gameState.phase !== 'PREPARING') throw new Error("Betting closed");
@@ -141,6 +145,7 @@ export class GlobalDurableObject extends DurableObject {
     if (balance < amount) throw new Error("Insufficient balance");
     balance -= amount;
     await this.state.storage.put(`balance_${userId}`, balance);
+    await this.updateUserStats(userId, userName, amount, 0, 0);
     const bet: Bet = {
       userId,
       userName,
@@ -163,5 +168,40 @@ export class GlobalDurableObject extends DurableObject {
     await this.internalProcessCashout(userId, this.gameState.currentMultiplier);
     await this.state.storage.put("game_state", this.gameState);
     return this.gameState.activeBets.find(b => b.userId === userId)!;
+  }
+  private async updateUserStats(userId: string, userName: string, betAmount: number, winnings: number, multiplier: number) {
+    const statsKey = `stats_${userId}`;
+    const existingStats = await this.state.storage.get(statsKey) as UserStats | undefined;
+    const stats: UserStats = existingStats || {
+      userId,
+      userName,
+      totalBets: 0,
+      totalWinnings: 0,
+      highestMultiplier: 0,
+      totalBettingAmount: 0
+    };
+    stats.totalBets += 1;
+    stats.totalBettingAmount += betAmount;
+    stats.totalWinnings += winnings - betAmount;
+    if (multiplier > stats.highestMultiplier) {
+      stats.highestMultiplier = multiplier;
+    }
+    await this.state.storage.put(statsKey, stats);
+  }
+  async getLeaderboard(): Promise<UserStats[]> {
+    try {
+      const list = await this.state.storage.list({ prefix: 'stats_' });
+      const stats: UserStats[] = [];
+      for (const entry of list.values()) {
+        if (entry && typeof entry === 'object' && 'userId' in entry) {
+          stats.push(entry as UserStats);
+        }
+      }
+      stats.sort((a, b) => b.totalWinnings - a.totalWinnings);
+      return stats.slice(0, 20);
+    } catch (err) {
+      console.error("getLeaderboard error:", err);
+      return [];
+    }
   }
 }

@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { RadarCanvas } from '@/components/game/RadarCanvas';
 import { CockpitControls } from '@/components/game/CockpitControls';
 import { HistoryRail } from '@/components/game/HistoryRail';
 import { LiveBetsTable } from '@/components/game/LiveBetsTable';
 import { VerifierModal } from '@/components/game/VerifierModal';
+import { Leaderboard } from '@/components/game/Leaderboard';
+import { PlaneSelector } from '@/components/game/PlaneSelector';
+import { PreparingCountdown } from '@/components/game/PreparingCountdown';
+import { CrashDisplay } from '@/components/game/CrashDisplay';
 import { calculateMultiplier } from '@shared/game-logic';
 import { formatMultiplier } from '@/lib/game-utils';
+import { sounds } from '@/lib/sounds';
 import { Toaster, toast } from 'sonner';
-import { Zap, ShieldCheck } from 'lucide-react';
+import { Zap, ShieldCheck, Trophy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { GameState, ApiResponse, Bet, RoundRecord } from '@shared/types';
 const getPersistentUserId = () => {
@@ -19,21 +24,37 @@ const getPersistentUserId = () => {
   return id;
 };
 const USER_ID = getPersistentUserId();
+
 export function HomePage() {
   const [balance, setBalance] = useState(1000.00);
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [interpolatedMs, setInterpolatedMs] = useState(0);
   const [isWaitingForBet, setIsWaitingForBet] = useState(false);
   const [myBet, setMyBet] = useState<Bet | null>(null);
   const [verifierOpen, setVerifierOpen] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [planeSelectorOpen, setPlaneSelectorOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<RoundRecord | null>(null);
   const [isConnected, setIsConnected] = useState(true);
+  const [displayedMultiplier, setDisplayedMultiplier] = useState(1.0);
+  const [isCashingOut, setIsCashingOut] = useState(false);
   const serverOffsetRef = useRef<number>(0);
   const offsetBufferRef = useRef<number[]>([]);
-  const pollDelayRef = useRef(400);
+  const pollDelayRef = useRef(1000);
   const consecFailsRef = useRef(0);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<number | undefined>();
+  const gameStateRef = useRef<GameState | null>(null);
+  const interpolatedMsRef = useRef(0);
+  const multiplierDisplayRef = useRef<HTMLDivElement>(null);
+  const lastMultiplierUpdateRef = useRef(0);
+  const lastDomMultiplierUpdateRef = useRef(0);
+  const fetchStateQueueRef = useRef(false);
+  const lastFetchedPhaseRef = useRef<string>('IDLE');
+  const lastPhaseRef = useRef<string>('IDLE');
   const fetchState = useCallback(async () => {
+    // Skip if already fetching to prevent queue backup
+    if (fetchStateQueueRef.current) return;
+    fetchStateQueueRef.current = true;
+
     try {
       const start = Date.now();
       const res = await fetch('/api/game/state', {
@@ -43,16 +64,33 @@ export function HomePage() {
         const text = await res.text();
         throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
       }
+      const end = Date.now();
+      const latency = (end - start) / 2;
       const json = await res.json() as ApiResponse<GameState>;
       if (!json.success || !json.data) {
         throw new Error(json.error || 'Invalid API response');
       }
-      const end = Date.now();
-      const latency = (end - start) / 2;
-      setGameState(json.data);
+      
+      // Only update state if phase changed (reduces re-renders)
+      if (json.data.phase !== lastFetchedPhaseRef.current) {
+        lastFetchedPhaseRef.current = json.data.phase;
+        if (json.data.phase === 'FLYING' && lastPhaseRef.current !== 'FLYING') {
+          sounds.flightStart();
+        }
+        if (json.data.phase === 'CRASHED' && lastPhaseRef.current !== 'CRASHED') {
+          sounds.crash();
+        }
+        lastPhaseRef.current = json.data.phase;
+        setGameState(json.data);
+      } else {
+        // Update ref directly to avoid state update
+        gameStateRef.current = json.data;
+      }
+      
       setIsConnected(true);
       consecFailsRef.current = 0;
-      pollDelayRef.current = 400;
+      pollDelayRef.current = 800;
+      
       if (json.data.serverTime) {
         const newOffset = json.data.serverTime - (end - latency);
         offsetBufferRef.current.push(newOffset);
@@ -60,11 +98,12 @@ export function HomePage() {
         serverOffsetRef.current = offsetBufferRef.current.reduce((a, b) => a + b, 0) / offsetBufferRef.current.length;
       }
     } catch (err) {
-      console.error("[SYNC ERROR]", err);
+      console.error("[SYNC ERROR]", err instanceof Error ? err.message : String(err), err);
       setIsConnected(false);
       consecFailsRef.current++;
-      // Exponential backoff for polling on errors
-      pollDelayRef.current = Math.min(5000, 400 * Math.pow(1.5, consecFailsRef.current));
+      pollDelayRef.current = Math.min(10000, 1000 * Math.pow(1.5, consecFailsRef.current));
+    } finally {
+      fetchStateQueueRef.current = false;
     }
   }, []);
   const fetchBalance = useCallback(async () => {
@@ -94,21 +133,50 @@ export function HomePage() {
       clearInterval(balanceInterval);
     };
   }, [fetchState, fetchBalance]);
+  
+  useEffect(() => {
+    if (!gameState) return;
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
   useEffect(() => {
     let frame: number;
-    const loop = () => {
-      if (gameState) {
+    const loop = (timestamp: number) => {
+      const gs = gameStateRef.current;
+      if (gs) {
         const now = Date.now() + serverOffsetRef.current;
-        const elapsed = gameState.phase === 'FLYING'
-          ? Math.max(0, now - gameState.startTime)
-          : (gameState.phase === 'CRASHED' ? (gameState.serverTime - gameState.startTime) : 0);
-        setInterpolatedMs(elapsed);
+        const elapsed = gs.phase === 'FLYING'
+          ? Math.max(0, now - gs.startTime)
+          : (gs.phase === 'CRASHED' ? (gs.serverTime - gs.startTime) : 0);
+        
+        interpolatedMsRef.current = elapsed;
+        
+        const currentM = calculateMultiplier(elapsed);
+        const displayM = gs.phase === 'CRASHED'
+          ? gs.lastCrashPoint
+          : gs.phase === 'FLYING' && gs.currentMultiplier > 1
+            ? gs.currentMultiplier
+            : currentM;
+        
+        // Keep DOM writes to ~30fps to reduce layout/reflow pressure.
+        if (multiplierDisplayRef.current && gs.phase === 'FLYING' && timestamp - lastDomMultiplierUpdateRef.current > 33) {
+          multiplierDisplayRef.current.textContent = formatMultiplier(displayM);
+          const scale = 1 + Math.min(displayM - 1, 100) * 0.005;
+          multiplierDisplayRef.current.style.transform = `scale(${scale})`;
+          lastDomMultiplierUpdateRef.current = timestamp;
+        }
+        
+        // Throttle React state updates to ~10fps for CockpitControls
+        if (timestamp - lastMultiplierUpdateRef.current > 100) {
+          setDisplayedMultiplier(displayM);
+          lastMultiplierUpdateRef.current = timestamp;
+        }
       }
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [gameState]);
+  }, []);
   const handlePlaceBet = async (amount: number, auto: number | null) => {
     if (amount > balance) {
       toast.error("Insufficient balance");
@@ -136,7 +204,8 @@ export function HomePage() {
     }
   };
   const handleCashout = useCallback(async () => {
-    if (!myBet || !gameState || gameState.phase !== 'FLYING') return;
+    if (!myBet || !gameState || gameState.phase !== 'FLYING' || isCashingOut) return;
+    setIsCashingOut(true);
     try {
       const res = await fetch('/api/game/cashout', {
         method: 'POST',
@@ -153,12 +222,13 @@ export function HomePage() {
       }
     } catch (e) {
       toast.error('Sync failure');
+    } finally {
+      setIsCashingOut(false);
     }
-  }, [myBet, gameState, fetchBalance]);
+  }, [myBet, gameState, fetchBalance, isCashingOut]);
   useEffect(() => {
     if (gameState?.phase === 'PREPARING') setMyBet(null);
   }, [gameState?.phase]);
-  const currentMultiplier = calculateMultiplier(interpolatedMs);
   const isCrashed = gameState?.phase === 'CRASHED';
   const flightPhase = isConnected ? (gameState?.phase || 'IDLE') : 'OFFLINE';
   return (
@@ -166,6 +236,8 @@ export function HomePage() {
       <Toaster position="top-right" richColors theme="dark" />
       <ThemeToggle className="top-4 right-4" />
       <VerifierModal round={selectedRound} isOpen={verifierOpen} onOpenChange={setVerifierOpen} />
+      <Leaderboard isOpen={leaderboardOpen} onOpenChange={setLeaderboardOpen} />
+      <PlaneSelector isOpen={planeSelectorOpen} onOpenChange={setPlaneSelectorOpen} />
       <div className="flex-1 flex flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6">
         <header className="shrink-0 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-950/80 p-4 rounded-2xl border border-zinc-800/50 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-5">
@@ -183,6 +255,12 @@ export function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto">
+            <button onClick={() => setPlaneSelectorOpen(true)} className="flex items-center gap-2 text-[10px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/30 transition-all">
+              <Zap className="w-4 h-4" /> <span className="hidden md:inline">Plane</span>
+            </button>
+            <button onClick={() => setLeaderboardOpen(true)} className="flex items-center gap-2 text-[10px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/30 transition-all">
+              <Trophy className="w-4 h-4" /> <span className="hidden md:inline">Rank</span>
+            </button>
             <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-r border-zinc-800">
               <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Credits</span>
               <span className="text-lg font-black font-mono text-emerald-400">
@@ -203,25 +281,37 @@ export function HomePage() {
               <HistoryRail history={gameState?.history || []} onSelectRound={setSelectedRound} />
               <div className="flex-1 relative flex flex-col p-4 min-h-0">
                 <div className="flex-1 relative min-h-0">
-                  <RadarCanvas elapsedMs={interpolatedMs} isCrashed={isCrashed} isFlying={gameState?.phase === 'FLYING'} />
+                  <RadarCanvas
+                    elapsedMs={interpolatedMsRef.current}
+                    isCrashed={isCrashed}
+                    isFlying={gameState?.phase === 'FLYING'}
+                    crashPoint={gameState?.lastCrashPoint}
+                  />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
                     {gameState?.phase === 'FLYING' && (
-                      <div className="text-7xl md:text-9xl font-black font-mono text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.4)] tracking-tighter transition-transform duration-100" style={{ transform: `scale(${1 + Math.min(currentMultiplier - 1, 100) * 0.005})` }}>
-                        {formatMultiplier(currentMultiplier)}
+                      <div 
+                        ref={multiplierDisplayRef}
+                        className="text-7xl md:text-9xl font-black font-mono text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.4)] tracking-tighter will-change-transform"
+                        style={{ backfaceVisibility: 'hidden', perspective: '1000px' }}
+                      >
+                        {formatMultiplier(displayedMultiplier)}
                       </div>
                     )}
                     {isCrashed && (
-                      <div className="glitch-active flex flex-col items-center">
-                        <div className="text-7xl md:text-9xl font-black font-mono text-red-500 drop-shadow-[0_0_50px_rgba(239,68,68,0.7)] tracking-tighter">
-                          {formatMultiplier(gameState.lastCrashPoint)}
-                        </div>
-                        <span className="text-red-600 font-mono text-xs font-bold uppercase tracking-[0.5em] mt-2">Crashed</span>
-                      </div>
+                      <CrashDisplay 
+                        crashPoint={gameState.lastCrashPoint}
+                        startTime={gameState.startTime}
+                        serverTime={gameState.serverTime}
+                        serverOffset={serverOffsetRef.current}
+                      />
                     )}
                     {gameState?.phase === 'PREPARING' && (
-                      <div className="flex flex-col items-center gap-6">
-                        <div className="text-lg font-mono font-black text-amber-500 tracking-[0.4em] uppercase animate-pulse">PREPARING LAUNCH</div>
-                      </div>
+                      <PreparingCountdown 
+                        startTime={gameState.startTime} 
+                        serverTime={gameState.serverTime} 
+                        serverOffset={serverOffsetRef.current}
+                        preparationMs={gameState.preparationMs}
+                      />
                     )}
                     {!isConnected && (
                       <div className="bg-black/80 px-4 py-2 rounded border border-red-500 text-red-500 font-mono text-xs uppercase animate-pulse">
@@ -236,9 +326,10 @@ export function HomePage() {
                     gameState={gameState?.phase || 'PREPARING'}
                     onPlaceBet={handlePlaceBet}
                     onCashout={handleCashout}
-                    currentMultiplier={currentMultiplier}
+                    currentMultiplier={displayedMultiplier}
                     hasActiveBet={!!myBet}
                     isWaiting={isWaitingForBet}
+                    isCashingOut={isCashingOut}
                   />
                 </div>
               </div>

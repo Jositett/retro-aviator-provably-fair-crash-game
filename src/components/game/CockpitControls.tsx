@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Coins, Zap, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { sounds } from '@/lib/sounds';
 interface CockpitControlsProps {
   balance: number;
   gameState: 'PREPARING' | 'FLYING' | 'CRASHED';
@@ -12,6 +13,7 @@ interface CockpitControlsProps {
   currentMultiplier: number;
   hasActiveBet: boolean;
   isWaiting: boolean;
+  isCashingOut?: boolean;
 }
 export function CockpitControls({
   balance,
@@ -20,7 +22,8 @@ export function CockpitControls({
   onCashout,
   currentMultiplier,
   hasActiveBet,
-  isWaiting
+  isWaiting,
+  isCashingOut = false
 }: CockpitControlsProps) {
   const [amount, setAmount] = useState<string>('10.00');
   const [autoCashout, setAutoCashout] = useState<string>('2.00');
@@ -28,6 +31,7 @@ export function CockpitControls({
   const handleBet = () => {
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0 || val > balance) return;
+    sounds.placeBet();
     onPlaceBet(val, useAuto ? parseFloat(autoCashout) : null);
   };
   const isPreparing = gameState === 'PREPARING';
@@ -103,8 +107,8 @@ export function CockpitControls({
             </Button>
           ) : (
             <Button
-              disabled={!isFlying}
-              onClick={onCashout}
+              disabled={!isFlying || isCashingOut}
+              onClick={() => { sounds.cashout(); onCashout(); }}
               className={cn(
                 "flex-1 text-lg font-black uppercase tracking-tighter h-full min-h-[100px] transition-all duration-300",
                 isFlying
@@ -113,7 +117,7 @@ export function CockpitControls({
               )}
             >
               <div className="flex flex-col items-center">
-                <span className="text-xs">Take Profit</span>
+                <span className="text-xs">{isCashingOut ? 'Securing...' : 'Take Profit'}</span>
                 <span className="text-2xl font-mono">${(parseFloat(amount) * currentMultiplier).toFixed(2)}</span>
               </div>
             </Button>

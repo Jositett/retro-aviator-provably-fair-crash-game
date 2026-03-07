@@ -122,6 +122,11 @@ export default ({ mode }: { mode: string }) => {
     },
     server: {
       allowedHosts: true,
+      strictPort: true,
+      // HMR websocket is unreliable in this runtime setup. Disabling it avoids
+      // repeated failed ws retries and mixed module states from partial updates.
+      // Use manual browser refresh while developing.
+      hmr: false,
       watch: {
         awaitWriteFinish: {
           stabilityThreshold: 150,
@@ -130,17 +135,44 @@ export default ({ mode }: { mode: string }) => {
       },
     },
     resolve: {
+      // ensure we don't end up with multiple React copies (common with monorepos
+      // or when a dependency bundles its own React).  React's invalid hook call
+      // warning will fire if two different React instances are loaded at runtime.
+      // Deduping here forces all imports of "react"/"react-dom" to resolve to
+      // the same package.
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@shared": path.resolve(__dirname, "./shared"),
       },
+      dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
     },
     optimizeDeps: {
       // This is still crucial for reducing the time from when `bun run dev`
       // is executed to when the server is actually ready.
-      include: ["react", "react-dom", "react-router-dom"],
-      exclude: ["agents"], // Exclude agents package from pre-bundling due to Node.js dependencies
-      force: true,
+      include: ["react", "react-dom", "react-dom/client", "react-router-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],
+      // Prevent dependency-hash churn after initial startup. If deps are
+      // re-optimized while the tab is open and HMR websocket is unavailable,
+      // the browser can end up with multiple React module instances loaded.
+      noDiscovery: true,
+      exclude: [
+        "agents", // Exclude agents package from pre-bundling due to Node.js dependencies
+        "framer-motion",
+        "@dnd-kit/core",
+        "@dnd-kit/sortable",
+        "@dnd-kit/utilities",
+        "recharts",
+        "react-hook-form",
+        "@hookform/resolvers/zod",
+        "zod",
+        "zustand",
+        "zustand/middleware",
+        "idb-keyval",
+        "date-fns",
+        "@radix-ui/react-slider"
+      ],
+      // Avoid generating a fresh optimized-deps hash every startup.
+      // Frequent hash churn can produce mixed module graphs in browser tabs.
+      force: false,
     },
     define: {
       // Define Node.js globals for the agents package

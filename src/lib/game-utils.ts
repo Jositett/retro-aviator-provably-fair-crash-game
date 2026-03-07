@@ -1,6 +1,6 @@
-import { calculateMultiplier } from '@shared/game-logic';
+import { calculateMultiplier, GAME_CONSTANTS } from '@shared/game-logic';
 export const GAME_SETTINGS = {
-  PREPARATION_TIME: 5000,
+  PREPARATION_TIME: GAME_CONSTANTS.PREPARATION_MS,
   MAX_MULTIPLIER: 1000,
   TICK_RATE: 16,
 };

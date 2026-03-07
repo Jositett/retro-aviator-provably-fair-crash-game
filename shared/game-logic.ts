@@ -2,7 +2,10 @@
  * Authoritative game physics and constants shared between client and server.
  */
 export const GAME_CONSTANTS = {
-  PREPARATION_MS: 5000,
+  // Fallback/default used by UI when a round-specific value is unavailable.
+  PREPARATION_MS: 10000,
+  MIN_PREPARATION_MS: 10000,
+  MAX_PREPARATION_MS: 15000,
   COOLDOWN_MS: 3000,
   TICK_RATE_MS: 100,
   MAX_MULTIPLIER: 1000000,
@@ -27,6 +30,12 @@ export function calculateMultiplier(elapsedMs: number): number {
   const multiplier = Math.min(raw, GAME_CONSTANTS.MAX_MULTIPLIER);
   // Ensure the decimal rounding is identical everywhere
   return Math.floor(multiplier * 100) / 100;
+}
+
+export function getRandomPreparationMs(): number {
+  const min = GAME_CONSTANTS.MIN_PREPARATION_MS;
+  const max = GAME_CONSTANTS.MAX_PREPARATION_MS;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 /**
  * Deterministically derives a crash point from a server seed using SHA-256.

@@ -4,7 +4,7 @@
  */
  {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "retro-aviator-crash-dj7m43gwepywawynozczx",
+	"name": "retro-aviator-crash",
 	"main": "worker/index.ts",
 	"compatibility_date": "2025-04-24",
 	"assets": {
