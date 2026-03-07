@@ -1,16 +1,61 @@
 // Simple Web Audio API sound effects generator
 let audioContext: AudioContext | null = null;
+let contextInitialized = false;
 
-const getAudioContext = (): AudioContext => {
+const initAudioContext = () => {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    try {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch (e) {
+      return;
+    }
   }
+
+  // Resume context if suspended (autoplay restriction)
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {
+      // Context resume failed - audio will be disabled
+    });
+  }
+
+  if (!contextInitialized) {
+    contextInitialized = true;
+    // Remove listener after context initialized
+    document.removeEventListener('click', handleUserGesture);
+    document.removeEventListener('touchstart', handleUserGesture);
+  }
+};
+
+const handleUserGesture = () => {
+  initAudioContext();
+};
+
+const getAudioContext = (): AudioContext | null => {
+  // Initialize on first user gesture
+  if (!contextInitialized) {
+    if (!audioContext) {
+      try {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        initAudioContext();
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  
+  // Ensure context is resumed if suspended
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => null);
+  }
+
   return audioContext;
 };
 
 const playTone = (frequency: number, duration: number, type: OscillatorType = 'sine', volume: number = 0.3) => {
   try {
     const ctx = getAudioContext();
+    if (!ctx) return; // Audio not available
+    
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
@@ -75,3 +120,9 @@ export const sounds = {
     playTone(700, 0.08, 'sine', 0.2);
   },
 };
+
+// Initialize audio context on first user gesture
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', handleUserGesture, { once: true });
+  document.addEventListener('touchstart', handleUserGesture, { once: true });
+}
