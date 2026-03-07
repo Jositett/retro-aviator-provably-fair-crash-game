@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useZoom } from '@/hooks/use-zoom';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { RadarCanvas } from '@/components/game/RadarCanvas';
 import { CockpitControls } from '@/components/game/CockpitControls';
@@ -26,6 +27,9 @@ const getPersistentUserId = () => {
 const USER_ID = getPersistentUserId();
 
 export function HomePage() {
+  const zoom = useZoom();
+  const scale = 1 / zoom;
+
   const [balance, setBalance] = useState(1000.00);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isWaitingForBet, setIsWaitingForBet] = useState(false);
@@ -232,14 +236,22 @@ export function HomePage() {
   const isCrashed = gameState?.phase === 'CRASHED';
   const flightPhase = isConnected ? (gameState?.phase || 'IDLE') : 'OFFLINE';
   return (
-    <div className="h-screen bg-[#020202] text-zinc-100 font-sans selection:bg-amber-500/30 overflow-hidden flex flex-col">
+    <div
+      className="h-screen bg-[#020202] text-zinc-100 font-sans selection:bg-amber-500/30 overflow-hidden flex flex-col"
+      style={{
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        width: `${zoom * 100}%`,
+        height: `${zoom * 100}%`,
+      }}
+    >
       <Toaster position="top-right" richColors theme="dark" />
       <ThemeToggle className="top-4 right-4" />
       <VerifierModal round={selectedRound} isOpen={verifierOpen} onOpenChange={setVerifierOpen} />
       <Leaderboard isOpen={leaderboardOpen} onOpenChange={setLeaderboardOpen} />
       <PlaneSelector isOpen={planeSelectorOpen} onOpenChange={setPlaneSelectorOpen} />
       <div className="flex-1 flex flex-col max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6">
-        <header className="shrink-0 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 bg-zinc-950/80 p-4 rounded-2xl border border-zinc-800/50 backdrop-blur-xl shadow-2xl">
+        <header className="shrink-0 mb-4 flex flex-col sm:flex-row flex-wrap items-center justify-between gap-4 bg-zinc-950/80 p-4 rounded-2xl border border-zinc-800/50 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center gap-5">
             <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)]">
               <Zap className="w-6 h-6 text-black fill-current" />
@@ -254,14 +266,14 @@ export function HomePage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4 w-full sm:w-auto">
+          <div className="flex items-center gap-4 flex-wrap w-full sm:w-auto">
             <button onClick={() => setPlaneSelectorOpen(true)} className="flex items-center gap-2 text-[10px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/30 transition-all">
               <Zap className="w-4 h-4" /> <span className="hidden md:inline">Plane</span>
             </button>
             <button onClick={() => setLeaderboardOpen(true)} className="flex items-center gap-2 text-[10px] font-mono text-amber-500 font-bold uppercase tracking-widest hover:bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/30 transition-all">
               <Trophy className="w-4 h-4" /> <span className="hidden md:inline">Rank</span>
             </button>
-            <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-r border-zinc-800">
+            <div className="flex-1 sm:flex-none flex flex-col items-end px-4 border-b sm:border-b-0 sm:border-r border-zinc-800">
               <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-0.5">Credits</span>
               <span className="text-lg font-black font-mono text-emerald-400">
                 ${balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -273,10 +285,10 @@ export function HomePage() {
           </div>
         </header>
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <aside className="hidden lg:block lg:col-span-3 h-full rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950/50 shadow-inner">
+          <aside className="hidden lg:block lg:col-span-3 rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950/50 shadow-inner">
             <LiveBetsTable activeBets={gameState?.activeBets || []} />
           </aside>
-          <section className="lg:col-span-9 flex flex-col h-full gap-4">
+          <section className="lg:col-span-9 flex flex-col gap-4">
             <div className="flex-1 flex flex-col bg-zinc-900/20 rounded-2xl border border-zinc-800/80 overflow-hidden relative backdrop-blur-sm min-h-0">
               <HistoryRail history={gameState?.history || []} onSelectRound={setSelectedRound} />
               <div className="flex-1 relative flex flex-col p-4 min-h-0">

@@ -15,7 +15,7 @@
 
 | Phase | Duration | Description |
 |-------|----------|-------------|
-| PREPARING | 5 seconds | New round starting, bets accepted |
+| PREPARING | 15 seconds | New round starting, bets accepted |
 | FLYING | Variable | Multiplier growing, betting closed |
 | CRASHED | 3 seconds | Round ended, cooldown before next |
 
