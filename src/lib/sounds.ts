@@ -20,7 +20,7 @@ const initAudioContext = () => {
 
   if (!contextInitialized) {
     contextInitialized = true;
-    // Remove listener after context initialized
+    // Remove listeners after context initialized
     document.removeEventListener('click', handleUserGesture);
     document.removeEventListener('touchstart', handleUserGesture);
   }
@@ -31,19 +31,12 @@ const handleUserGesture = () => {
 };
 
 const getAudioContext = (): AudioContext | null => {
-  // Initialize on first user gesture
+  // Only use existing context - never create new one outside of user gesture
   if (!contextInitialized) {
-    if (!audioContext) {
-      try {
-        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        initAudioContext();
-      } catch (e) {
-        return null;
-      }
-    }
+    return null;
   }
   
-  // Ensure context is resumed if suspended
+  // Resume context if it was suspended
   if (audioContext && audioContext.state === 'suspended') {
     audioContext.resume().catch(() => null);
   }
